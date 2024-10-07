@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "allowUnreachableCode": false,
+    "declaration": true,
+    "esModuleInterop": true,
+    "inlineSources": true,
+    "lib": ["dom", "es2017"],
+    "module": "esnext",
+    "moduleResolution": "node",
+    "noFallthroughCasesInSwitch": true,
+    "skipLibCheck": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "outDir": "dist/esm",
+    "pretty": true,
+    "sourceMap": true,
+    "strict": true,
+    "target": "es2017",
+    "types": []
+  },
+  "exclude": ["node_modules"],
+  "files": ["src/index.ts", "src/idb-key-store.ts"]
+}
