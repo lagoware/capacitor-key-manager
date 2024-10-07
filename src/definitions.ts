@@ -24,7 +24,7 @@ export interface KeyManagerPlugin {
   checkAliasExists(options: { keyAlias: string }): Promise<{ aliasExists: boolean }>;
 
   /**
-   * Generates a key that can be used for symmetrical encryption / decryption.
+   * Generates a key that can be used for symmetric encryption / decryption.
    * The underlying key material cannot be recovered, therefore encryption / decryption will only be possible on this device.
    */
   generateKey(options: { keyAlias: string }): Promise<void>;
