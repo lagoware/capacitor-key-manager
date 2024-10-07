@@ -27,6 +27,7 @@ npx cap sync
 
 <docgen-index>
 
+* [`checkAliasExists(...)`](#checkaliasexists)
 * [`generateKey(...)`](#generatekey)
 * [`generateRecoverableSignatureKeyPair(...)`](#generaterecoverablesignaturekeypair)
 * [`generateRecoverableAgreementKeyPair(...)`](#generaterecoverableagreementkeypair)
@@ -45,7 +46,6 @@ npx cap sync
 * [`decryptWithAgreedKey(...)`](#decryptwithagreedkey)
 * [`sign(...)`](#sign)
 * [`verify(...)`](#verify)
-* [`checkAliasExists(...)`](#checkaliasexists)
 * [Type Aliases](#type-aliases)
 
 </docgen-index>
@@ -53,13 +53,30 @@ npx cap sync
 <docgen-api>
 <!--Update the source file JSDoc comments and rerun docgen to update the docs below-->
 
+### checkAliasExists(...)
+
+```typescript
+checkAliasExists(options: { keyAlias: string; }) => Promise<{ aliasExists: boolean; }>
+```
+
+Checks if a key or key pair exists in the key store under the provided alias.
+
+| Param         | Type                               |
+| ------------- | ---------------------------------- |
+| **`options`** | <code>{ keyAlias: string; }</code> |
+
+**Returns:** <code>Promise&lt;{ aliasExists: boolean; }&gt;</code>
+
+--------------------
+
+
 ### generateKey(...)
 
 ```typescript
 generateKey(options: { keyAlias: string; }) => Promise<void>
 ```
 
-Generates a key that can be used for symmetrical encryption / decryption.
+Generates a key that can be used for symmetric encryption / decryption.
 The underlying key material cannot be recovered, therefore encryption / decryption will only be possible on this device.
 
 | Param         | Type                               |
@@ -357,23 +374,6 @@ Verifies a signature with a previously generated / recovered signature key pair 
 | **`options`** | <code>{ keyAlias: string; cleartext: string; signature: string; }</code> |
 
 **Returns:** <code>Promise&lt;{ isValid: boolean; }&gt;</code>
-
---------------------
-
-
-### checkAliasExists(...)
-
-```typescript
-checkAliasExists(options: { keyAlias: string; }) => Promise<{ aliasExists: boolean; }>
-```
-
-Checks if a key or key pair exists under the provided alias.
-
-| Param         | Type                               |
-| ------------- | ---------------------------------- |
-| **`options`** | <code>{ keyAlias: string; }</code> |
-
-**Returns:** <code>Promise&lt;{ aliasExists: boolean; }&gt;</code>
 
 --------------------
 
