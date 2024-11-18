@@ -77,7 +77,7 @@ public class KeyManager {
 
     @RequiresApi(api = Build.VERSION_CODES.M)
     public RecoverableKeyPair generateRecoverableSignatureKeyPair(String password, String salt) throws InvalidAlgorithmParameterException, NoSuchPaddingException, IllegalBlockSizeException, CertificateException, NoSuchAlgorithmException, InvalidKeySpecException, KeyStoreException, IOException, BadPaddingException, InvalidKeyException, OperatorCreationException {
-        return generateRecoverableSignatureKeyPair(password, Base64.decode(salt, Base64.DEFAULT));
+        return generateRecoverableSignatureKeyPair(password, Base64.decode(salt, Base64.NO_WRAP));
     }
 
     @RequiresApi(api = Build.VERSION_CODES.S)
@@ -87,12 +87,12 @@ public class KeyManager {
 
     @RequiresApi(api = Build.VERSION_CODES.S)
     public RecoverableKeyPair generateRecoverableAgreementKeyPair(String password, String salt) throws NoSuchAlgorithmException, InvalidAlgorithmParameterException, InvalidKeySpecException, NoSuchPaddingException, IllegalBlockSizeException, BadPaddingException, InvalidKeyException, KeyStoreException, CertificateException, IOException, OperatorCreationException {
-        return generateRecoverableAgreementKeyPair(password, Base64.decode(salt, Base64.DEFAULT));
+        return generateRecoverableAgreementKeyPair(password, Base64.decode(salt, Base64.NO_WRAP));
     }
 
     @RequiresApi(api = Build.VERSION_CODES.M)
     public RecoverableKey generateRecoverableKey(String password, String salt) throws InvalidAlgorithmParameterException, NoSuchPaddingException, IllegalBlockSizeException, CertificateException, NoSuchAlgorithmException, InvalidKeySpecException, BadPaddingException, KeyStoreException, IOException, InvalidKeyException {
-        return generateRecoverableKey(password, Base64.decode(salt, Base64.DEFAULT));
+        return generateRecoverableKey(password, Base64.decode(salt, Base64.NO_WRAP));
     }
 
     @RequiresApi(api = Build.VERSION_CODES.M)
@@ -123,8 +123,8 @@ public class KeyManager {
     @RequiresApi(api = Build.VERSION_CODES.M)
     public RecoverableKeyPair reWrapSignatureKeyPair(RecoverableKeyPair recoverableKeyPair, String currentPassword, String newPassword) throws NoSuchAlgorithmException, InvalidKeySpecException, InvalidAlgorithmParameterException, NoSuchPaddingException, IllegalBlockSizeException, BadPaddingException, InvalidKeyException {
         PrivateKey privateKey = unwrapPrivateKey(
-            Base64.decode(recoverableKeyPair.privateKey.ciphertext, Base64.DEFAULT),
-            Base64.decode(recoverableKeyPair.privateKey.iv, Base64.DEFAULT),
+            Base64.decode(recoverableKeyPair.privateKey.ciphertext, Base64.NO_WRAP),
+            Base64.decode(recoverableKeyPair.privateKey.iv, Base64.NO_WRAP),
             generatePasswordKey(currentPassword, recoverableKeyPair.privateKey.salt)
         );
 
@@ -137,13 +137,13 @@ public class KeyManager {
     @RequiresApi(api = Build.VERSION_CODES.M)
     public RecoverableKeyPair reWrapSignatureKeyPair(RecoverableKeyPair recoverableKeyPair, String currentPassword, String newPassword, String newSalt) throws NoSuchAlgorithmException, InvalidKeySpecException, InvalidAlgorithmParameterException, NoSuchPaddingException, IllegalBlockSizeException, BadPaddingException, InvalidKeyException {
         PrivateKey privateKey = unwrapPrivateKey(
-            Base64.decode(recoverableKeyPair.privateKey.ciphertext, Base64.DEFAULT),
-            Base64.decode(recoverableKeyPair.privateKey.iv, Base64.DEFAULT),
+            Base64.decode(recoverableKeyPair.privateKey.ciphertext, Base64.NO_WRAP),
+            Base64.decode(recoverableKeyPair.privateKey.iv, Base64.NO_WRAP),
             generatePasswordKey(currentPassword, recoverableKeyPair.privateKey.salt)
         );
 
         return new RecoverableKeyPair(
-            keyToRecoverableKey(privateKey, newPassword, Base64.decode(newSalt, Base64.DEFAULT)),
+            keyToRecoverableKey(privateKey, newPassword, Base64.decode(newSalt, Base64.NO_WRAP)),
             recoverableKeyPair.publicKey
         );
     }
@@ -151,8 +151,8 @@ public class KeyManager {
     @RequiresApi(api = Build.VERSION_CODES.M)
     public RecoverableKeyPair reWrapAgreementKeyPair(RecoverableKeyPair recoverableKeyPair, String currentPassword, String newPassword) throws NoSuchAlgorithmException, InvalidKeySpecException, InvalidAlgorithmParameterException, NoSuchPaddingException, IllegalBlockSizeException, BadPaddingException, InvalidKeyException {
         PrivateKey privateKey = unwrapPrivateKey(
-            Base64.decode(recoverableKeyPair.privateKey.ciphertext, Base64.DEFAULT),
-            Base64.decode(recoverableKeyPair.privateKey.iv, Base64.DEFAULT),
+            Base64.decode(recoverableKeyPair.privateKey.ciphertext, Base64.NO_WRAP),
+            Base64.decode(recoverableKeyPair.privateKey.iv, Base64.NO_WRAP),
             generatePasswordKey(currentPassword, recoverableKeyPair.privateKey.salt)
         );
 
@@ -165,13 +165,13 @@ public class KeyManager {
     @RequiresApi(api = Build.VERSION_CODES.M)
     public RecoverableKeyPair reWrapAgreementKeyPair(RecoverableKeyPair recoverableKeyPair, String currentPassword, String newPassword, String newSalt) throws NoSuchAlgorithmException, InvalidKeySpecException, InvalidAlgorithmParameterException, NoSuchPaddingException, IllegalBlockSizeException, BadPaddingException, InvalidKeyException {
         PrivateKey privateKey = unwrapPrivateKey(
-            Base64.decode(recoverableKeyPair.privateKey.ciphertext, Base64.DEFAULT),
-            Base64.decode(recoverableKeyPair.privateKey.iv, Base64.DEFAULT),
+            Base64.decode(recoverableKeyPair.privateKey.ciphertext, Base64.NO_WRAP),
+            Base64.decode(recoverableKeyPair.privateKey.iv, Base64.NO_WRAP),
             generatePasswordKey(currentPassword, recoverableKeyPair.privateKey.salt)
         );
 
         return new RecoverableKeyPair(
-            keyToRecoverableKey(privateKey, newPassword, Base64.decode(newSalt, Base64.DEFAULT)),
+            keyToRecoverableKey(privateKey, newPassword, Base64.decode(newSalt, Base64.NO_WRAP)),
             recoverableKeyPair.publicKey
         );
     }
@@ -179,8 +179,8 @@ public class KeyManager {
     @RequiresApi(api = Build.VERSION_CODES.M)
     public RecoverableKey reWrapKey(RecoverableKey recoverableKey, String currentPassword, String newPassword) throws NoSuchAlgorithmException, InvalidKeySpecException, InvalidAlgorithmParameterException, NoSuchPaddingException, IllegalBlockSizeException, BadPaddingException, InvalidKeyException {
         SecretKey secretKey = unwrapSecretKey(
-            Base64.decode(recoverableKey.ciphertext, Base64.DEFAULT),
-            Base64.decode(recoverableKey.iv, Base64.DEFAULT),
+            Base64.decode(recoverableKey.ciphertext, Base64.NO_WRAP),
+            Base64.decode(recoverableKey.iv, Base64.NO_WRAP),
             generatePasswordKey(currentPassword, recoverableKey.salt)
         );
 
@@ -190,12 +190,12 @@ public class KeyManager {
     @RequiresApi(api = Build.VERSION_CODES.M)
     public RecoverableKey reWrapKey(RecoverableKey recoverableKey, String currentPassword, String newPassword, String newSalt) throws NoSuchAlgorithmException, InvalidKeySpecException, InvalidAlgorithmParameterException, NoSuchPaddingException, IllegalBlockSizeException, BadPaddingException, InvalidKeyException {
         SecretKey secretKey = unwrapSecretKey(
-            Base64.decode(recoverableKey.ciphertext, Base64.DEFAULT),
-            Base64.decode(recoverableKey.iv, Base64.DEFAULT),
+            Base64.decode(recoverableKey.ciphertext, Base64.NO_WRAP),
+            Base64.decode(recoverableKey.iv, Base64.NO_WRAP),
             generatePasswordKey(currentPassword, recoverableKey.salt)
         );
 
-        return keyToRecoverableKey(secretKey, newPassword, Base64.decode(newSalt, Base64.DEFAULT));
+        return keyToRecoverableKey(secretKey, newPassword, Base64.decode(newSalt, Base64.NO_WRAP));
     }
 
     @RequiresApi(api = Build.VERSION_CODES.M)
@@ -216,8 +216,8 @@ public class KeyManager {
             alias,
             new KeyStore.SecretKeyEntry(
                 unwrapSecretKey(
-                    Base64.decode(recoverableKey.ciphertext, Base64.DEFAULT),
-                    Base64.decode(recoverableKey.iv, Base64.DEFAULT),
+                    Base64.decode(recoverableKey.ciphertext, Base64.NO_WRAP),
+                    Base64.decode(recoverableKey.iv, Base64.NO_WRAP),
                     generatePasswordKey(password, recoverableKey.salt)
                 )
             ),
@@ -355,27 +355,27 @@ public class KeyManager {
 
     private SerializedEncryptedMessage serializeEncryptedMessage(EncryptedMessage encryptedMessage) {
         return new SerializedEncryptedMessage(
-            Base64.encodeToString(encryptedMessage.data, Base64.DEFAULT),
-            Base64.encodeToString(encryptedMessage.iv, Base64.DEFAULT)
+            Base64.encodeToString(encryptedMessage.data, Base64.NO_WRAP),
+            Base64.encodeToString(encryptedMessage.iv, Base64.NO_WRAP)
         );
     }
 
     private EncryptedMessage deserializeEncryptedMessage(SerializedEncryptedMessage encryptedMessage) {
         return new EncryptedMessage(
-            Base64.decode(encryptedMessage.ciphertext, Base64.DEFAULT),
-            Base64.decode(encryptedMessage.iv, Base64.DEFAULT)
+            Base64.decode(encryptedMessage.ciphertext, Base64.NO_WRAP),
+            Base64.decode(encryptedMessage.iv, Base64.NO_WRAP)
         );
     }
 
     private RecoverableKey keyToRecoverableKey(Key key, String password, byte[] salt) throws NoSuchAlgorithmException, InvalidKeySpecException, InvalidAlgorithmParameterException, NoSuchPaddingException, IllegalBlockSizeException, BadPaddingException, InvalidKeyException {
-        String saltStr = Base64.encodeToString(salt, Base64.DEFAULT);
+        String saltStr = Base64.encodeToString(salt, Base64.NO_WRAP);
 
         SecretKey wrappingKey = generatePasswordKey(password, saltStr);
         EncryptedMessage encryptedKey = wrapKey(key, wrappingKey);
 
         return new RecoverableKey(
-            Base64.encodeToString(encryptedKey.data, Base64.DEFAULT),
-            Base64.encodeToString(encryptedKey.iv, Base64.DEFAULT),
+            Base64.encodeToString(encryptedKey.data, Base64.NO_WRAP),
+            Base64.encodeToString(encryptedKey.iv, Base64.NO_WRAP),
             saltStr
         );
     }
@@ -387,9 +387,9 @@ public class KeyManager {
             new RecoverableKey(
                 serializedEncryptedMessage.ciphertext,
                 serializedEncryptedMessage.iv,
-                Base64.encodeToString(salt, Base64.DEFAULT)
+                Base64.encodeToString(salt, Base64.NO_WRAP)
             ),
-            Base64.encodeToString(keyPair.getPublic().getEncoded(), Base64.DEFAULT)
+            Base64.encodeToString(keyPair.getPublic().getEncoded(), Base64.NO_WRAP)
         );
     }
 
@@ -459,7 +459,7 @@ public class KeyManager {
                 generateSelfSignedCertificate(
                     privateKey,
                     KeyFactory.getInstance(KeyProperties.KEY_ALGORITHM_EC).generatePublic(
-                        new X509EncodedKeySpec(Base64.decode(publicKey, Base64.DEFAULT))
+                        new X509EncodedKeySpec(Base64.decode(publicKey, Base64.NO_WRAP))
                     )
                 )
             ),
@@ -474,8 +474,8 @@ public class KeyManager {
         KeyStore ks = loadKeyStore();
 
         PrivateKey privateKey = unwrapPrivateKey(
-            Base64.decode(recoverableKeyPair.privateKey.ciphertext, Base64.DEFAULT),
-            Base64.decode(recoverableKeyPair.privateKey.iv, Base64.DEFAULT),
+            Base64.decode(recoverableKeyPair.privateKey.ciphertext, Base64.NO_WRAP),
+            Base64.decode(recoverableKeyPair.privateKey.iv, Base64.NO_WRAP),
             generatePasswordKey(password, recoverableKeyPair.privateKey.salt)
         );
         KeyFactory kf = KeyFactory.getInstance(KeyProperties.KEY_ALGORITHM_EC);
@@ -488,7 +488,7 @@ public class KeyManager {
                     generateSelfSignedCertificate(
                         privateKey,
                         kf.generatePublic(
-                            new X509EncodedKeySpec(Base64.decode(recoverableKeyPair.publicKey, Base64.DEFAULT))
+                            new X509EncodedKeySpec(Base64.decode(recoverableKeyPair.publicKey, Base64.NO_WRAP))
                         )
                     )
                 }
@@ -617,7 +617,7 @@ public class KeyManager {
     }
 
     private SecretKey generatePasswordKey(String password, String salt) throws NoSuchAlgorithmException, InvalidKeySpecException {
-        return generatePasswordKey(password, Base64.decode(salt, Base64.DEFAULT));
+        return generatePasswordKey(password, Base64.decode(salt, Base64.NO_WRAP));
     }
 
     private SecretKey generatePasswordKey(String password, byte[] salt) throws NoSuchAlgorithmException, InvalidKeySpecException {

@@ -63,10 +63,11 @@ public class KeyManagerInstrumentedTest {
 
         RecoverableKeyPair recoverableKeyPair = keyManager.generateRecoverableSignatureKeyPair("MyPassword");
 
-        assertEquals(215, recoverableKeyPair.publicKey.length());
-        assertEquals(17, recoverableKeyPair.privateKey.iv.length());
-        assertEquals(349, recoverableKeyPair.privateKey.ciphertext.length());
-        assertEquals(175, recoverableKeyPair.privateKey.salt.length());
+        assertFalse(recoverableKeyPair.publicKey.contains("\n"));
+        assertEquals(212, recoverableKeyPair.publicKey.length());
+        assertEquals(16, recoverableKeyPair.privateKey.iv.length());
+        assertEquals(344, recoverableKeyPair.privateKey.ciphertext.length());
+        assertEquals(172, recoverableKeyPair.privateKey.salt.length());
 
         keyManager.recoverSignatureKeyPair("MyTestKey", recoverableKeyPair, "MyPassword");
 
@@ -119,10 +120,10 @@ public class KeyManagerInstrumentedTest {
         KeyManager keyManager = new KeyManager();
         RecoverableKeyPair recoverableKeyPair = keyManager.generateRecoverableAgreementKeyPair("MyPassword");
 
-        assertEquals(215, recoverableKeyPair.publicKey.length());
-        assertEquals(17, recoverableKeyPair.privateKey.iv.length());
-        assertEquals(349, recoverableKeyPair.privateKey.ciphertext.length());
-        assertEquals(175, recoverableKeyPair.privateKey.salt.length());
+        assertEquals(212, recoverableKeyPair.publicKey.length());
+        assertEquals(16, recoverableKeyPair.privateKey.iv.length());
+        assertEquals(344, recoverableKeyPair.privateKey.ciphertext.length());
+        assertEquals(172, recoverableKeyPair.privateKey.salt.length());
 
         keyManager.recoverAgreementKeyPair("MyTestKey", recoverableKeyPair, "MyPassword");
 
@@ -166,15 +167,15 @@ public class KeyManagerInstrumentedTest {
 
         RecoverableKey recoverableKey = keyManager.generateRecoverableKey( "MyPassword");
 
-        assertEquals(65, recoverableKey.ciphertext.length());
-        assertEquals(17, recoverableKey.iv.length());
-        assertEquals(175, recoverableKey.salt.length());
+        assertEquals(64, recoverableKey.ciphertext.length());
+        assertEquals(16, recoverableKey.iv.length());
+        assertEquals(172, recoverableKey.salt.length());
 
         keyManager.recoverKey("MyKey", recoverableKey, "MyPassword");
 
         SerializedEncryptedMessage encryptedMessage = keyManager.encrypt("MyKey", "MyMessage");
-        assertEquals(37, encryptedMessage.ciphertext.length());
-        assertEquals(17, encryptedMessage.iv.length());
+        assertEquals(36, encryptedMessage.ciphertext.length());
+        assertEquals(16, encryptedMessage.iv.length());
 
         assertEquals(keyManager.decrypt("MyKey", encryptedMessage), "MyMessage");
     }
@@ -212,8 +213,8 @@ public class KeyManagerInstrumentedTest {
         keyManager.generateKey("Danis");
 
         SerializedEncryptedMessage encryptedMessage = keyManager.encrypt("Danis", "MyMessage");
-        assertEquals(37, encryptedMessage.ciphertext.length());
-        assertEquals(17, encryptedMessage.iv.length());
+        assertEquals(36, encryptedMessage.ciphertext.length());
+        assertEquals(16, encryptedMessage.iv.length());
 
         assertEquals(keyManager.decrypt("Danis", encryptedMessage), "MyMessage");
     }
