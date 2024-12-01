@@ -1,5 +1,6 @@
 import { WebPlugin } from '@capacitor/core';
-import type { EncryptedMessage, IKeyStore, KeyManagerWebPlugin, RecoverableKey, RecoverableKeyPair } from './definitions';
+
+import type { EncryptedMessage, IKeyStore, KeyManagerWebPlugin, KeyReference, KeyUnwrapParams, RecoverableKey, RecoverableKeyPair } from './definitions';
 import { KeyManager } from './key-manager';
 
 export class KeyManagerWeb extends WebPlugin implements KeyManagerWebPlugin {
@@ -13,10 +14,10 @@ export class KeyManagerWeb extends WebPlugin implements KeyManagerWebPlugin {
       .then(() => this.impl.useKeyStore(keyStore)));
   }
 
-  async ensureKeyStoreIsLoaded() {
+  async ensureKeyStoreIsLoaded(): Promise<void> {
     if (!this.keyStorePromise) {
       const { IdbKeyStore } = await import('./idb-key-store');
-      return this.useKeyStore(new IdbKeyStore);
+      await this.useKeyStore(new IdbKeyStore);
     }
   }
 
@@ -43,32 +44,32 @@ export class KeyManagerWeb extends WebPlugin implements KeyManagerWebPlugin {
     return this.impl.generateRecoverableKey(options);
   }
 
-  async reWrapSignatureKeyPair(options: { currentPassword: string; newPassword: string; newSalt?: string; recoverableKeyPair: RecoverableKeyPair; }): Promise<{ recoverableKeyPair: RecoverableKeyPair; }> {
+  async rewrapSignatureKeyPair(options: { unwrapWith: KeyUnwrapParams; rewrapWith: KeyUnwrapParams; recoverableKeyPair: RecoverableKeyPair; }): Promise<{ recoverableKeyPair: RecoverableKeyPair; }> {
     await this.ensureKeyStoreIsLoaded();
-    return this.impl.reWrapSignatureKeyPair(options);  
+    return this.impl.rewrapSignatureKeyPair(options);  
   }
 
-  async reWrapAgreementKeyPair(options: { currentPassword: string; newPassword: string; newSalt?: string; recoverableKeyPair: RecoverableKeyPair; }): Promise<{ recoverableKeyPair: RecoverableKeyPair; }> {
+  async rewrapAgreementKeyPair(options: { unwrapWith: KeyUnwrapParams; rewrapWith: KeyUnwrapParams; recoverableKeyPair: RecoverableKeyPair; }): Promise<{ recoverableKeyPair: RecoverableKeyPair; }> {
     await this.ensureKeyStoreIsLoaded();
-    return this.impl.reWrapAgreementKeyPair(options);  
+    return this.impl.rewrapAgreementKeyPair(options);  
   }
 
-  async reWrapKey(options: { currentPassword: string; newPassword: string; newSalt?: string; recoverableKey: RecoverableKey; }): Promise<{ recoverableKey: RecoverableKey; }> {
+  async rewrapKey(options: { unwrapWith: KeyUnwrapParams; rewrapWith: KeyUnwrapParams; recoverableKey: RecoverableKey; }): Promise<{ recoverableKey: RecoverableKey; }> {
     await this.ensureKeyStoreIsLoaded();
-    return this.impl.reWrapKey(options);
+    return this.impl.rewrapKey(options);
   }
 
-  async recoverSignatureKeyPair(options: { alias: string; recoverableKeyPair: RecoverableKeyPair; password: string; }): Promise<void> {
+  async recoverSignatureKeyPair(options: { importAlias: string; recoverableKeyPair: RecoverableKeyPair; unwrapWith: KeyUnwrapParams; }): Promise<void> {
     await this.ensureKeyStoreIsLoaded();
     return this.impl.recoverSignatureKeyPair(options);
   }
 
-  async recoverAgreementKeyPair(options: { alias: string; recoverableKeyPair: RecoverableKeyPair; password: string; }): Promise<void> {
+  async recoverAgreementKeyPair(options: { importAlias: string; recoverableKeyPair: RecoverableKeyPair; unwrapWith: KeyUnwrapParams; }): Promise<void> {
     await this.ensureKeyStoreIsLoaded();
     return this.impl.recoverAgreementKeyPair(options);
   }
 
-  async recoverKey(options: { alias: string; recoverableKey: RecoverableKey; password: string; }): Promise<void> {
+  async recoverKey(options: { importAlias: string; recoverableKey: RecoverableKey; unwrapWith: KeyUnwrapParams; }): Promise<void> {
     await this.ensureKeyStoreIsLoaded();
     return this.impl.recoverKey(options);
   }
@@ -83,24 +84,14 @@ export class KeyManagerWeb extends WebPlugin implements KeyManagerWebPlugin {
     return this.impl.importPublicSignatureKey(options);
   }
 
-  async encrypt(options: { keyAlias: string; cleartext: string; }): Promise<{ encryptedMessage: EncryptedMessage; }> {
+  async encrypt(options: { encryptWith: KeyReference; cleartext: string; }): Promise<{ encryptedMessage: EncryptedMessage; }> {
     await this.ensureKeyStoreIsLoaded();
     return this.impl.encrypt(options);
   }
 
-  async decrypt(options: { keyAlias: string; encryptedMessage: EncryptedMessage; }): Promise<{ cleartext: string; }> {
+  async decrypt(options: { decryptWith: KeyReference; encryptedMessage: EncryptedMessage; }): Promise<{ cleartext: string; }> {
     await this.ensureKeyStoreIsLoaded();
     return this.impl.decrypt(options);
-  }
-
-  async encryptWithAgreedKey(options: { privateKeyAlias: string; publicKeyAlias: string; cleartext: string; info?: string; }): Promise<{ encryptedMessage: EncryptedMessage; }> {
-    await this.ensureKeyStoreIsLoaded();
-    return this.impl.encryptWithAgreedKey(options);
-  }
-
-  async decryptWithAgreedKey(options: { privateKeyAlias: string; publicKeyAlias: string; encryptedMessage: EncryptedMessage; info?: string; }): Promise<{ cleartext: string; }> {
-    await this.ensureKeyStoreIsLoaded();
-    return this.impl.decryptWithAgreedKey(options);
   }
 
   async sign(options: { keyAlias: string; cleartext: string; }): Promise<{ signature: string; }> {

@@ -1,5 +1,6 @@
-import type { IKeyStore, RecoverableKeyPair, RecoverableKey, KeyManagerWebPlugin, EncryptedMessage } from './definitions';
 import webCrypto from 'tiny-webcrypto';
+
+import type { IKeyStore, RecoverableKeyPair, RecoverableKey, KeyManagerWebPlugin, EncryptedMessage, KeyUnwrapParams, KeyWrapParams, KeyReference, DerivedKeyReference, SymmetricKeyReference, PasswordEncryptedRecoverableKey, KeyUnwrapParamsWithSalt, PasswordParamsMaybeSalt, PasswordEncryptedRecoverableKeyPair } from './definitions';
 
 export function base64Decode(str: string): ArrayBuffer {
     return Uint8Array.from(atob(str), c => c.charCodeAt(0)).buffer;
@@ -9,10 +10,26 @@ export function base64Encode(buff: ArrayBuffer): string {
     return btoa(String.fromCharCode(...new Uint8Array(buff)))
 }
 
+function isSymmetricKeyReference(val: any): val is SymmetricKeyReference {
+    return !!(val as SymmetricKeyReference)?.keyAlias;
+}
+
+function isDerivedKeyReference(val: any): val is DerivedKeyReference {
+    return !!(val as DerivedKeyReference)?.publicKeyAlias;
+}
+
+function isPasswordParams(val: any): val is ({ password: string }) {
+    return !!(val)?.password;
+}
+
+function isPasswordParamsWithSalt(val: any): val is ({ password: string, salt: string }) {
+    return !!(val)?.password && !!(val)?.salt;
+}
+
 export class KeyManager implements KeyManagerWebPlugin {
     private keyStore : IKeyStore|null = null;
 
-    async useKeyStore(keyStore: IKeyStore) {
+    async useKeyStore(keyStore: IKeyStore): Promise<void> {
         this.keyStore = keyStore;
     }
 
@@ -29,7 +46,7 @@ export class KeyManager implements KeyManagerWebPlugin {
         };
     }
 
-    async generateKey({ keyAlias }: { keyAlias: string }) {
+    async generateKey({ keyAlias }: { keyAlias: string }): Promise<void> {
         if (!this.keyStore) {
             throw new Error(`KeyManager#generateKey: no keyStore is loaded`);
         }
@@ -39,12 +56,14 @@ export class KeyManager implements KeyManagerWebPlugin {
                 length: 256 
             },
             false,
-            ['encrypt', 'decrypt']
+            ['encrypt', 'decrypt', 'wrapKey', 'unwrapKey']
         );
         await this.keyStore.putCryptoKey(keyAlias, key);
     }
 
-    async generateRecoverableSignatureKeyPair({ password, salt } : { password: string, salt?: string }) {
+    async generateRecoverableSignatureKeyPair(
+        keyWrapParams : KeyWrapParams
+    ): Promise<{ recoverableKeyPair: RecoverableKeyPair }> {
         const keyPair = await webCrypto.subtle.generateKey(
             {
                 name: "ECDSA",
@@ -54,12 +73,12 @@ export class KeyManager implements KeyManagerWebPlugin {
             ["sign", "verify"],
         );
 
-        const recoverableKeyPair = await this.keyPairToRecoverableKeyPair(keyPair, password, salt);
+        const recoverableKeyPair = await this.keyPairToRecoverableKeyPair(keyPair, keyWrapParams);
 
         return { recoverableKeyPair };
     }
 
-    async generateRecoverableAgreementKeyPair({ password, salt } : { password: string, salt?: string  }) {
+    async generateRecoverableAgreementKeyPair(keyWrapParams : KeyWrapParams): Promise<{ recoverableKeyPair: RecoverableKeyPair }> {
         const keyPair = await webCrypto.subtle.generateKey(
             {
                 name: "ECDH",
@@ -69,85 +88,138 @@ export class KeyManager implements KeyManagerWebPlugin {
             ["deriveKey"],
         );
 
-        const recoverableKeyPair = await this.keyPairToRecoverableKeyPair(keyPair, password, salt);
+        const recoverableKeyPair = await this.keyPairToRecoverableKeyPair(keyPair, keyWrapParams);
 
         return { recoverableKeyPair };
     }
     
-    async generateRecoverableKey({ password, salt }: { password: string; salt?: string; }): Promise<{ recoverableKey: RecoverableKey }> {
+    async generateRecoverableKey(keyWrapParams : KeyWrapParams): Promise<{ recoverableKey: RecoverableKey }> {
         const key = await webCrypto.subtle.generateKey(
             { 
                 name: 'AES-GCM', 
                 length: 256 
             },
             true,
-            ['encrypt', 'decrypt']
+            ['encrypt', 'decrypt', 'wrapKey', 'unwrapKey']
         );
 
-        return { recoverableKey: await this.keyToRecoverableKey(key, password, salt) };
+        return { recoverableKey: await this.keyToRecoverableKey(key, keyWrapParams) };
     }
 
-    async reWrapSignatureKeyPair({ recoverableKeyPair, currentPassword, newPassword, newSalt }: { currentPassword: string; newPassword: string; newSalt?: string; recoverableKeyPair: RecoverableKeyPair; }): Promise<{ recoverableKeyPair: RecoverableKeyPair; }> {
+    async rewrapSignatureKeyPair({ 
+        recoverableKeyPair,
+        unwrapWith,
+        rewrapWith
+    }: {
+        recoverableKeyPair: RecoverableKeyPair,
+        unwrapWith: KeyUnwrapParams,
+        rewrapWith: KeyWrapParams,
+    }): Promise<{ recoverableKeyPair: RecoverableKeyPair; }> {
+        const [ publicKey, privateKey ] = await Promise.all([
+            this.deserializePublicSignatureKey(recoverableKeyPair.publicKey),
+            this.unwrapSignaturePrivateKey(recoverableKeyPair.privateKey, unwrapWith, true)
+        ]);
+
         return {
             recoverableKeyPair: await this.keyPairToRecoverableKeyPair({
-                publicKey: await this.deserializePublicSignatureKey(recoverableKeyPair.publicKey),
-                privateKey: await this.unwrapSignaturePrivateKey(recoverableKeyPair.privateKey, currentPassword, true),
-            }, newPassword, newSalt)
+                publicKey,
+                privateKey,
+            }, rewrapWith)
         }
     }
     
-    async reWrapAgreementKeyPair({ recoverableKeyPair, currentPassword, newPassword, newSalt }: { currentPassword: string; newPassword: string; newSalt?: string; recoverableKeyPair: RecoverableKeyPair; }): Promise<{ recoverableKeyPair: RecoverableKeyPair; }> {
+    async rewrapAgreementKeyPair(
+        { recoverableKeyPair, unwrapWith, rewrapWith }: 
+        {
+            recoverableKeyPair: RecoverableKeyPair,
+            unwrapWith: KeyUnwrapParams,
+            rewrapWith: KeyWrapParams,
+        }
+    ): Promise<{ recoverableKeyPair: RecoverableKeyPair; }> {
+        const [ publicKey, privateKey ] = await Promise.all([
+            this.deserializePublicAgreementKey(recoverableKeyPair.publicKey),
+            this.unwrapAgreementPrivateKey(recoverableKeyPair.privateKey, unwrapWith, true)
+        ]);
+
         return {
-            recoverableKeyPair: await this.keyPairToRecoverableKeyPair({
-                publicKey: await this.deserializePublicAgreementKey(recoverableKeyPair.publicKey),
-                privateKey: await this.unwrapAgreementPrivateKey(recoverableKeyPair.privateKey, currentPassword, true),
-            }, newPassword, newSalt)
+            recoverableKeyPair: await this.keyPairToRecoverableKeyPair(
+                {
+                    publicKey,
+                    privateKey,
+                }, 
+                rewrapWith
+            )
         }
     }
 
-    async reWrapKey({ recoverableKey, currentPassword, newPassword, newSalt }: { currentPassword: string; newPassword: string; newSalt?: string; recoverableKey: RecoverableKey; }): Promise<{ recoverableKey: RecoverableKey; }> {
-        const key = await this.unwrapKey(recoverableKey, currentPassword, true);
+    async rewrapKey(
+        { recoverableKey, unwrapWith, rewrapWith }: 
+        {
+            recoverableKey: RecoverableKey,
+            unwrapWith: KeyUnwrapParams,
+            rewrapWith: KeyWrapParams,
+        }
+    ): Promise<{ recoverableKey: RecoverableKey; }> {
+        const key = await this.unwrapKey(recoverableKey, unwrapWith, true);
 
         return {
-            recoverableKey: await this.keyToRecoverableKey(key, newPassword, newSalt)
+            recoverableKey: await this.keyToRecoverableKey(key, rewrapWith)
         };
     }
 
-    async recoverSignatureKeyPair({ alias, recoverableKeyPair, password }: { alias: string; recoverableKeyPair: RecoverableKeyPair; password: string; }): Promise<void> {
+    async recoverSignatureKeyPair(
+        { importAlias, recoverableKeyPair, unwrapWith }:
+        { importAlias: string, recoverableKeyPair: RecoverableKeyPair, unwrapWith: KeyUnwrapParams }
+    ): Promise<void> {
         if (!this.keyStore) {
             throw new Error(`KeyManager#recoverSignatureKeyPair: no keyStore is loaded`);
         }
 
+        const [ publicKey, privateKey ] = await Promise.all([
+            this.deserializePublicSignatureKey(recoverableKeyPair.publicKey),
+            this.unwrapSignaturePrivateKey(recoverableKeyPair.privateKey, unwrapWith, false)
+        ]);
+
         const keyPair : CryptoKeyPair = {
-            publicKey: await this.deserializePublicSignatureKey(recoverableKeyPair.publicKey),
-            privateKey: await this.unwrapSignaturePrivateKey(recoverableKeyPair.privateKey, password, false)
+            publicKey,
+            privateKey
         };
 
-        await this.keyStore.putCryptoKeyPair(alias, keyPair);
+        await this.keyStore.putCryptoKeyPair(importAlias, keyPair);
     }
 
-    async recoverAgreementKeyPair({ alias, recoverableKeyPair, password }: { alias: string; recoverableKeyPair: RecoverableKeyPair; password: string; }): Promise<void> {        
+    async recoverAgreementKeyPair(
+        { importAlias, recoverableKeyPair, unwrapWith }:
+        { importAlias: string, recoverableKeyPair: RecoverableKeyPair, unwrapWith: KeyUnwrapParams }
+    ): Promise<void> {        
         if (!this.keyStore) {
             throw new Error(`KeyManager#recoverAgreementKeyPair: no keyStore is loaded`);
         }
 
+        const [ publicKey, privateKey ] = await Promise.all([
+            this.deserializePublicAgreementKey(recoverableKeyPair.publicKey),
+            this.unwrapAgreementPrivateKey(recoverableKeyPair.privateKey, unwrapWith, false)
+        ]);
+
         const keyPair : CryptoKeyPair = {
-            publicKey: await this.deserializePublicAgreementKey(recoverableKeyPair.publicKey),
-            privateKey: await this.unwrapAgreementPrivateKey(recoverableKeyPair.privateKey, password, false)
+            publicKey,
+            privateKey
         };
 
-        await this.keyStore.putCryptoKeyPair(alias, keyPair);
+        await this.keyStore.putCryptoKeyPair(importAlias, keyPair);
     }
 
-    async recoverKey({ alias, recoverableKey, password }: { alias: string; recoverableKey: RecoverableKey; password: string; }): Promise<void> {
+    async recoverKey(
+        { importAlias, recoverableKey, unwrapWith }: 
+        { importAlias: string, recoverableKey: RecoverableKey, unwrapWith: KeyUnwrapParams }
+    ): Promise<void> {
         if (!this.keyStore) {
             throw new Error(`KeyManager#recoverKey: no keyStore is loaded`);
         }
-        
-        await this.keyStore.putCryptoKey(alias, await this.unwrapKey(recoverableKey, password, false))
+        await this.keyStore.putCryptoKey(importAlias, await this.unwrapKey(recoverableKey, unwrapWith, false))
     }
 
-    async importPublicSignatureKey({ alias, publicKey }: { alias: string, publicKey: string }) {    
+    async importPublicSignatureKey({ alias, publicKey }: { alias: string, publicKey: string }): Promise<void> {    
         if (!this.keyStore) {
             throw new Error(`KeyManager#importPublicSignatureKey: no keyStore is loaded`);
         }
@@ -155,7 +227,7 @@ export class KeyManager implements KeyManagerWebPlugin {
         await this.keyStore.putCryptoKey(alias, await this.deserializePublicSignatureKey(publicKey));
     }
     
-    async importPublicAgreementKey({ alias, publicKey }: { alias: string, publicKey: string }) {    
+    async importPublicAgreementKey({ alias, publicKey }: { alias: string, publicKey: string }): Promise<void> {    
         if (!this.keyStore) {
             throw new Error(`KeyManager#importPublicAgreementKey: no keyStore is loaded`);
         }
@@ -163,43 +235,31 @@ export class KeyManager implements KeyManagerWebPlugin {
         await this.keyStore.putCryptoKey(alias, await this.deserializePublicAgreementKey(publicKey));
     }
 
-    async encrypt({ keyAlias, cleartext }: { keyAlias: string; cleartext: string; }): Promise<{ encryptedMessage: EncryptedMessage; }> {
-        const key = await this.resolveKey(keyAlias);
+    async encrypt({ encryptWith, cleartext }: { encryptWith: KeyReference; cleartext: string; }): Promise<{ encryptedMessage: EncryptedMessage; }> {
+        const key = await this.resolveEncryptionKey(encryptWith);
+
+        if (!key) {
+            throw new Error('No encryption key could be resolved');
+        }
         
         return {
             encryptedMessage: await this.encryptWithKey(cleartext, key)
         }
     }
 
-    async decrypt({ keyAlias, encryptedMessage }: { keyAlias: string; encryptedMessage: EncryptedMessage; }): Promise<{ cleartext: string; }> {
-        const key = await this.resolveKey(keyAlias);
+    async decrypt({ decryptWith, encryptedMessage }: { decryptWith: KeyReference, encryptedMessage: EncryptedMessage }): Promise<{ cleartext: string; }> {
+        const key = await this.resolveEncryptionKey(decryptWith);
+
+        if (!key) {
+            throw new Error('No decryption key could be resolved');
+        }
 
         return {
             cleartext: await this.decryptWithKey(encryptedMessage, key)
         };
     }
 
-    async decryptWithAgreedKey({ privateKeyAlias, publicKeyAlias, encryptedMessage, info }: { privateKeyAlias: string; publicKeyAlias: string; encryptedMessage: EncryptedMessage; info?: string; }): Promise<{ cleartext: string  }> {
-        const { privateKey, publicKey } = await this.resolveAgreementKeys(privateKeyAlias, publicKeyAlias);
-        
-        const encryptionKey = await this.deriveEncryptionKey(privateKey, publicKey, info);
-
-        return {
-            cleartext: await this.decryptWithKey(encryptedMessage, encryptionKey)
-        }
-    }
-
-    async encryptWithAgreedKey({ privateKeyAlias, publicKeyAlias, cleartext, info }: { privateKeyAlias: string; publicKeyAlias: string; cleartext: string; info?: string; }): Promise<{ encryptedMessage: EncryptedMessage; }> {
-        const { privateKey, publicKey } = await this.resolveAgreementKeys(privateKeyAlias, publicKeyAlias);
-
-        const encryptionKey = await this.deriveEncryptionKey(privateKey, publicKey, info);
-
-        return {
-            encryptedMessage: await this.encryptWithKey(cleartext, encryptionKey)
-        }
-    }
-
-    async sign({ keyAlias, cleartext }: { keyAlias: string, cleartext: string }) {
+    async sign({ keyAlias, cleartext }: { keyAlias: string, cleartext: string }): Promise<{ signature: string}> {
         const keyPair = await this.resolveKeyPair(keyAlias);
 
         const enc = new TextEncoder();
@@ -211,7 +271,7 @@ export class KeyManager implements KeyManagerWebPlugin {
         return { signature: base64Encode(sig) };
     }
 
-    async verify({ keyAlias, cleartext, signature }: { signature: string, keyAlias: string, cleartext: string }) {
+    async verify({ keyAlias, cleartext, signature }: { signature: string, keyAlias: string, cleartext: string }): Promise<{ isValid: boolean }> {
         let publicKey : CryptoKey;
         
         try {
@@ -236,11 +296,58 @@ export class KeyManager implements KeyManagerWebPlugin {
         return { isValid };
     }
 
-    private async unwrapSignaturePrivateKey(recoverableKey: RecoverableKey, password: string, extractable: boolean): Promise<CryptoKey> {
+    private async resolveDerivedKey({ keyAlias, publicKeyAlias, info }: DerivedKeyReference) {
+        const { privateKey, publicKey } = await this.resolveAgreementKeys(keyAlias, publicKeyAlias);
+        
+        return this.deriveEncryptionKey(privateKey, publicKey, info);
+    }
+
+    private async resolveEncryptionKey(keyReference: KeyReference): Promise<CryptoKey|null> {
+        if (isDerivedKeyReference(keyReference)) {
+            return this.resolveDerivedKey(keyReference);
+        } else if (isSymmetricKeyReference(keyReference)) {
+            return this.resolveKey(keyReference.keyAlias);
+        }
+        return null;
+    }
+
+    private async resolveWrappingKey(unwrapParams: KeyUnwrapParamsWithSalt): Promise<CryptoKey> {
+        const encKey = await this.resolveEncryptionKey(unwrapParams as KeyReference);
+        if (encKey) {
+            return encKey;
+        } else if (isPasswordParamsWithSalt(unwrapParams)) {
+            return await this.deriveKeyFromPassword(unwrapParams.password, base64Decode(unwrapParams.salt));
+        }
+        throw new Error('Unrecognized unwrapParams format');
+    }
+
+    private addSaltToUnwrapParams(unwrapParams: KeyUnwrapParams, recoverableKey: RecoverableKey): KeyUnwrapParamsWithSalt {
+        if (isPasswordParams(unwrapParams)) {
+            return { ...unwrapParams, salt: (recoverableKey as PasswordEncryptedRecoverableKey).salt }
+        }
+        return unwrapParams;
+    }
+
+    private fillGeneratedSaltToUnwrapParams(unwrapParams: KeyUnwrapParams): KeyUnwrapParamsWithSalt {
+        if (isPasswordParams(unwrapParams)) {
+            const { salt } = (unwrapParams as PasswordParamsMaybeSalt);
+            return { 
+                ...unwrapParams, 
+                salt: salt ?? base64Encode(webCrypto.getRandomValues(new Uint8Array(128)))
+            }
+        }
+        return unwrapParams;
+    }
+
+    private async unwrapSignaturePrivateKey(recoverableKey: RecoverableKey, unwrapParams: KeyUnwrapParams, extractable: boolean): Promise<CryptoKey> {
+        const wrappingKey = await this.resolveWrappingKey(
+            this.addSaltToUnwrapParams(unwrapParams, recoverableKey)
+        );
+
         return webCrypto.subtle.unwrapKey(
             'pkcs8',
             base64Decode(recoverableKey.ciphertext),
-            (await this.deriveKeyFromPassword(password, recoverableKey.salt)).key,
+            wrappingKey,
             {
                 name: 'AES-GCM',
                 iv: base64Decode(recoverableKey.iv)
@@ -254,11 +361,15 @@ export class KeyManager implements KeyManagerWebPlugin {
         );
     }
 
-    private async unwrapAgreementPrivateKey(recoverableKey: RecoverableKey, password: string, extractable: boolean): Promise<CryptoKey> {
+    private async unwrapAgreementPrivateKey(recoverableKey: RecoverableKey, unwrapParams: KeyUnwrapParams, extractable: boolean): Promise<CryptoKey> {
+        const wrappingKey = await this.resolveWrappingKey(
+            this.addSaltToUnwrapParams(unwrapParams, recoverableKey)
+        );
+
         return webCrypto.subtle.unwrapKey(
             'pkcs8',
             base64Decode(recoverableKey.ciphertext),
-            (await this.deriveKeyFromPassword(password, recoverableKey.salt)).key,
+            wrappingKey,
             {
                 name: 'AES-GCM',
                 iv: base64Decode(recoverableKey.iv)
@@ -272,21 +383,25 @@ export class KeyManager implements KeyManagerWebPlugin {
         );
     }
     
-    private async unwrapKey(recoverableKey: RecoverableKey, password: string, extractable: boolean ) {
+    private async unwrapKey(recoverableKey: RecoverableKey, unwrapParams: KeyUnwrapParams, extractable: boolean ) {
+        const wrappingKey = await this.resolveWrappingKey(
+            this.addSaltToUnwrapParams(unwrapParams, recoverableKey)
+        );
+        
         return webCrypto.subtle.unwrapKey(
             'raw',
             base64Decode(recoverableKey.ciphertext),
-            (await this.deriveKeyFromPassword(password, recoverableKey.salt)).key,
+            wrappingKey,
             { name: 'AES-GCM', iv: base64Decode(recoverableKey.iv) },
             { name: 'AES-GCM', length: 256 },
             extractable,
-            ['encrypt','decrypt']
+            ['encrypt', 'decrypt', 'wrapKey', 'unwrapKey']
         );
     }
 
     private async wrapKeyWithKey(keyToWrap: CryptoKey, wrappingKey: CryptoKey): Promise<EncryptedMessage> {
         const iv = webCrypto.getRandomValues(new Uint8Array(12));
-        
+
         const key = await webCrypto.subtle.wrapKey(
             keyToWrap.algorithm.name == 'AES-GCM' 
                 ? 'raw' 
@@ -351,7 +466,7 @@ export class KeyManager implements KeyManagerWebPlugin {
             throw new Error(`KeyManager#resolveKey: no keyStore is loaded`);
         }
         
-        let key: CryptoKey|null = await this.keyStore.getCryptoKey(keyAlias);
+        const key: CryptoKey|null = await this.keyStore.getCryptoKey(keyAlias);
 
         if (!key) {
             throw new Error(`No key with alias ${keyAlias} was found`);
@@ -369,7 +484,7 @@ export class KeyManager implements KeyManagerWebPlugin {
             throw new Error(`KeyManager#resolveAgreementKeys: key pair with alias ${privateKeyAlias} does not exist`);
         }
 
-        let publicKey: CryptoKey|null = privateKeyAlias === publicKeyAlias
+        const publicKey: CryptoKey|null = privateKeyAlias === publicKeyAlias
             ? keyPair.publicKey
             : (await this.keyStore.getCryptoKey(publicKeyAlias));
 
@@ -395,37 +510,50 @@ export class KeyManager implements KeyManagerWebPlugin {
         return keyPair;
     }
 
-    private async keyPairToRecoverableKeyPair(keyPair: CryptoKeyPair, password: string, salt?: string): Promise<RecoverableKeyPair> {
-        const keyEncryptionKey = await this.deriveKeyFromPassword(password, salt);
-        const encryptedPrivateKey = await this.wrapKeyWithKey(keyPair.privateKey, keyEncryptionKey.key);
+    private async keyPairToRecoverableKeyPair(keyPair: CryptoKeyPair, wrapParams: KeyWrapParams): Promise<RecoverableKeyPair> {
+        const params = this.fillGeneratedSaltToUnwrapParams(wrapParams);
+        const wrappingKey = await this.resolveWrappingKey(params);
+
+        const privateKey = await this.wrapKeyWithKey(keyPair.privateKey, wrappingKey);
+
         const publicKey = base64Encode(await webCrypto.subtle.exportKey('spki', keyPair.publicKey));
 
-        const recoverableKeyPair: RecoverableKeyPair = { 
-            privateKey: { 
-                ...encryptedPrivateKey, 
-                salt: base64Encode(keyEncryptionKey.salt) 
-            },  
-            publicKey 
-        };
+        if (isPasswordParamsWithSalt(params)) {
+            const recoverableKeyPair : PasswordEncryptedRecoverableKeyPair = { 
+                privateKey: { 
+                    ...privateKey, 
+                    salt: params.salt
+                },
+                publicKey 
+            };
 
-        return recoverableKeyPair;
+            return recoverableKeyPair;
+        }
+
+        return {
+            privateKey,
+            publicKey
+        };
     }    
 
-    private async keyToRecoverableKey(key: CryptoKey, password: string, salt?: string): Promise<RecoverableKey> {
-        const keyEncryptionKey = await this.deriveKeyFromPassword(password, salt);
-        const encryptedPrivateKey = await this.wrapKeyWithKey(key, keyEncryptionKey.key);
+    private async keyToRecoverableKey(key: CryptoKey, wrapParams: KeyWrapParams): Promise<RecoverableKey> {
+        const params = this.fillGeneratedSaltToUnwrapParams(wrapParams);
+        const wrappingKey = await this.resolveWrappingKey(params);
 
-        return {            
-            ...encryptedPrivateKey, 
-            salt: base64Encode(keyEncryptionKey.salt) 
-        };
+        const encryptedPrivateKey = await this.wrapKeyWithKey(key, wrappingKey);
+
+        if (isPasswordParamsWithSalt(params)) {
+            const recoverableKeyPair : PasswordEncryptedRecoverableKey = { 
+                ...encryptedPrivateKey, 
+                salt: params.salt
+            };
+
+            return recoverableKeyPair;
+        }
+        return encryptedPrivateKey;
     }
 
-    private async deriveKeyFromPassword(password: string, saltStr?: string) {
-        const salt = saltStr
-            ? base64Decode(saltStr)
-            : webCrypto.getRandomValues(new Uint8Array(128));
-
+    private async deriveKeyFromPassword(password: string, salt: ArrayBuffer) {
         const enc = new TextEncoder();
         
         const passwordKey = await webCrypto.subtle.importKey(
@@ -449,7 +577,7 @@ export class KeyManager implements KeyManagerWebPlugin {
             ['wrapKey', 'unwrapKey', 'encrypt', 'decrypt']
         );
 
-        return { key: derivedKey, salt };
+        return derivedKey;
     }
 
     private async deriveEncryptionKey(privateKey: CryptoKey, publicKey: CryptoKey, info?: string) {
@@ -469,7 +597,7 @@ export class KeyManager implements KeyManagerWebPlugin {
                     length: 256,
                 },
             false,
-            info != null ? ["deriveKey"] : ["encrypt", "decrypt"],
+            info != null ? ["deriveKey"] : ['wrapKey', 'unwrapKey', 'encrypt', 'decrypt'],
         );
         
         let encryptionKey = agreedKey;
@@ -487,7 +615,7 @@ export class KeyManager implements KeyManagerWebPlugin {
                 agreedKey,
                 { name: "AES-GCM", length: 256 },
                 false,
-                ["encrypt", "decrypt"],
+                ['wrapKey', 'unwrapKey', 'encrypt', 'decrypt'],
             );
         }
 

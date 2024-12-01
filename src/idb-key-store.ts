@@ -1,8 +1,8 @@
 
-import type { DBSchema, IDBPDatabase } from 'idb';
-import type { IKeyStore } from './definitions';
-
 import { openDB } from 'idb';
+import type { DBSchema, IDBPDatabase } from 'idb';
+
+import type { IKeyStore } from './definitions';
 
 export interface KeyStoreDbSchema extends DBSchema {
     keyPairs: {
@@ -53,37 +53,37 @@ export class IdbKeyStore implements IKeyStore {
         return this._db ?? (this._db = this.dbLoader());
     }
 
-    async getCryptoKey(alias: string) {
+    async getCryptoKey(alias: string): Promise<CryptoKey|null> {
         const db = await this.db;
 
         return (await db.get('keys', alias)) ?? null;
     }
 
-    async getCryptoKeyPair(alias: string) {
+    async getCryptoKeyPair(alias: string): Promise<CryptoKeyPair|null> {
         const db = await this.db;
 
         return (await db.get('keyPairs', alias)) ?? null;
     }
 
-    async putCryptoKeyPair(alias: string, keyPair: CryptoKeyPair) {
+    async putCryptoKeyPair(alias: string, keyPair: CryptoKeyPair): Promise<void> {
         const db = await this.db;
 
         await db.put('keyPairs', keyPair, alias);
     }
 
-    async putCryptoKey(alias: string, key: CryptoKey) {
+    async putCryptoKey(alias: string, key: CryptoKey): Promise<void> {
         const db = await this.db;
 
         await db.put('keys', key, alias);
     }
     
-    async deleteCryptoKeyPair(alias: string) {
+    async deleteCryptoKeyPair(alias: string): Promise<void> {
         const db = await this.db;
 
         await db.delete('keyPairs', alias);
     }
 
-    async deleteCryptoKey(alias: string) {
+    async deleteCryptoKey(alias: string): Promise<void> {
         const db = await this.db;
 
         await db.delete('keys', alias);

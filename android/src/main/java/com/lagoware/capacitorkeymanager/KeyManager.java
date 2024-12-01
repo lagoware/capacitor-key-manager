@@ -70,34 +70,81 @@ import java.security.SecureRandom;
 public class KeyManager {
     public static final String TAG = "KeyManager";
 
-    @RequiresApi(api = Build.VERSION_CODES.M)
-    public RecoverableKeyPair generateRecoverableSignatureKeyPair(String password) throws InvalidAlgorithmParameterException, NoSuchPaddingException, IllegalBlockSizeException, CertificateException, NoSuchAlgorithmException, InvalidKeySpecException, KeyStoreException, IOException, BadPaddingException, InvalidKeyException, OperatorCreationException {
-        return generateRecoverableSignatureKeyPair(password, generateSalt());
+    private SecretKey passwordWrappingParamsToWrappingKey(PasswordWrappingParams params) throws NoSuchAlgorithmException, InvalidKeySpecException {
+        return SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(
+            new PBEKeySpec(
+                params.password.toCharArray(),
+                params.salt,
+                100000,
+                32 * 8
+            )
+        );
     }
 
-    @RequiresApi(api = Build.VERSION_CODES.M)
-    public RecoverableKeyPair generateRecoverableSignatureKeyPair(String password, String salt) throws InvalidAlgorithmParameterException, NoSuchPaddingException, IllegalBlockSizeException, CertificateException, NoSuchAlgorithmException, InvalidKeySpecException, KeyStoreException, IOException, BadPaddingException, InvalidKeyException, OperatorCreationException {
-        return generateRecoverableSignatureKeyPair(password, Base64.decode(salt, Base64.NO_WRAP));
+    private SecretKey resolveKeyReference(KeyReference params) throws GeneralSecurityException, IOException {
+        if (params.publicKeyAlias == null) {
+            return loadSecretKey(params.keyAlias);
+        } else {
+            byte[] sharedSecret = deriveAgreedKey(params.keyAlias, params.publicKeyAlias);
+
+            if (params.info != null) {
+                sharedSecret = deriveInfoKey(sharedSecret, params.info);
+            }
+
+            return new SecretKeySpec(sharedSecret, 0, 32, "AES/GCM/NoPadding");
+        }
     }
 
-    @RequiresApi(api = Build.VERSION_CODES.S)
-    public RecoverableKeyPair generateRecoverableAgreementKeyPair(String password) throws NoSuchAlgorithmException, InvalidAlgorithmParameterException, InvalidKeySpecException, NoSuchPaddingException, IllegalBlockSizeException, BadPaddingException, InvalidKeyException, KeyStoreException, CertificateException, IOException, OperatorCreationException {
-        return generateRecoverableAgreementKeyPair(password, generateSalt());
+    private SecretKey resolveEncryptionKey(EncryptionKeySpec params) throws GeneralSecurityException, IOException {
+        if (params instanceof PasswordWrappingParams passwordParams) {
+            return passwordWrappingParamsToWrappingKey(passwordParams);
+        } else if (params instanceof KeyReference keyReference){
+            return resolveKeyReference(keyReference);
+        }
+        throw new Error("Unrecognized encryption key spec");
     }
 
-    @RequiresApi(api = Build.VERSION_CODES.S)
-    public RecoverableKeyPair generateRecoverableAgreementKeyPair(String password, String salt) throws NoSuchAlgorithmException, InvalidAlgorithmParameterException, InvalidKeySpecException, NoSuchPaddingException, IllegalBlockSizeException, BadPaddingException, InvalidKeyException, KeyStoreException, CertificateException, IOException, OperatorCreationException {
-        return generateRecoverableAgreementKeyPair(password, Base64.decode(salt, Base64.NO_WRAP));
+    private RecoverableKeyPair generateRecoverableEcKeyPair(EncryptionKeySpec params) throws GeneralSecurityException, IOException {
+        byte[] salt = params instanceof PasswordWrappingParams passwordParams
+            ? passwordParams.fillSalt()
+            : null;
+
+        KeyPairGenerator generator = KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_EC);
+
+        generator.initialize(new ECGenParameterSpec("secp521r1"));
+
+        KeyPair keyPair = generator.generateKeyPair();
+        SecretKey wrappingKey = resolveEncryptionKey(params);
+
+        return new RecoverableKeyPair(
+            new RecoverableKey(
+                wrapKey(keyPair.getPrivate(), wrappingKey),
+                salt
+            ),
+            keyPair.getPublic().getEncoded()
+        );
     }
 
-    @RequiresApi(api = Build.VERSION_CODES.M)
-    public RecoverableKey generateRecoverableKey(String password, String salt) throws InvalidAlgorithmParameterException, NoSuchPaddingException, IllegalBlockSizeException, CertificateException, NoSuchAlgorithmException, InvalidKeySpecException, BadPaddingException, KeyStoreException, IOException, InvalidKeyException {
-        return generateRecoverableKey(password, Base64.decode(salt, Base64.NO_WRAP));
+    public RecoverableKey generateRecoverableKey(EncryptionKeySpec params) throws GeneralSecurityException, IOException {
+        byte[] salt = params instanceof PasswordWrappingParams passwordParams
+            ? passwordParams.fillSalt()
+            : null;
+        KeyGenerator keyGenerator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES);
+        keyGenerator.init(256);
+        SecretKey wrappingKey = resolveEncryptionKey(params);
+
+        return new RecoverableKey(
+            wrapKey(keyGenerator.generateKey(), wrappingKey),
+            salt
+        );
     }
 
-    @RequiresApi(api = Build.VERSION_CODES.M)
-    public RecoverableKey generateRecoverableKey(String password) throws NoSuchAlgorithmException, InvalidKeySpecException, InvalidAlgorithmParameterException, NoSuchPaddingException, IllegalBlockSizeException, BadPaddingException, InvalidKeyException, CertificateException, KeyStoreException, IOException {
-        return generateRecoverableKey(password, generateSalt());
+    public RecoverableKeyPair generateRecoverableSignatureKeyPair(EncryptionKeySpec params) throws GeneralSecurityException, IOException {
+        return generateRecoverableEcKeyPair(params);
+    }
+
+    public RecoverableKeyPair generateRecoverableAgreementKeyPair(EncryptionKeySpec params) throws GeneralSecurityException, IOException {
+        return generateRecoverableEcKeyPair(params);
     }
 
     @RequiresApi(api = Build.VERSION_CODES.M)
@@ -121,96 +168,129 @@ public class KeyManager {
     }
 
     @RequiresApi(api = Build.VERSION_CODES.M)
-    public RecoverableKeyPair reWrapSignatureKeyPair(RecoverableKeyPair recoverableKeyPair, String currentPassword, String newPassword) throws NoSuchAlgorithmException, InvalidKeySpecException, InvalidAlgorithmParameterException, NoSuchPaddingException, IllegalBlockSizeException, BadPaddingException, InvalidKeyException {
-        PrivateKey privateKey = unwrapPrivateKey(
-            Base64.decode(recoverableKeyPair.privateKey.ciphertext, Base64.NO_WRAP),
-            Base64.decode(recoverableKeyPair.privateKey.iv, Base64.NO_WRAP),
-            generatePasswordKey(currentPassword, recoverableKeyPair.privateKey.salt)
-        );
+    public RecoverableKey rewrapKey(RecoverableKey recoverableKey, EncryptionKeySpec unwrapWith, EncryptionKeySpec rewrapWith) throws GeneralSecurityException, IOException {
+        if (unwrapWith instanceof PasswordWrappingParams unwrapParams) {
+            unwrapParams.fillSalt(recoverableKey.salt);
+        }
+        SecretKey unwrapKey = resolveEncryptionKey(unwrapWith);
 
-        return new RecoverableKeyPair(
-            keyToRecoverableKey(privateKey, newPassword, generateSalt()),
-            recoverableKeyPair.publicKey
-        );
-    }
-
-    @RequiresApi(api = Build.VERSION_CODES.M)
-    public RecoverableKeyPair reWrapSignatureKeyPair(RecoverableKeyPair recoverableKeyPair, String currentPassword, String newPassword, String newSalt) throws NoSuchAlgorithmException, InvalidKeySpecException, InvalidAlgorithmParameterException, NoSuchPaddingException, IllegalBlockSizeException, BadPaddingException, InvalidKeyException {
-        PrivateKey privateKey = unwrapPrivateKey(
-            Base64.decode(recoverableKeyPair.privateKey.ciphertext, Base64.NO_WRAP),
-            Base64.decode(recoverableKeyPair.privateKey.iv, Base64.NO_WRAP),
-            generatePasswordKey(currentPassword, recoverableKeyPair.privateKey.salt)
-        );
-
-        return new RecoverableKeyPair(
-            keyToRecoverableKey(privateKey, newPassword, Base64.decode(newSalt, Base64.NO_WRAP)),
-            recoverableKeyPair.publicKey
-        );
-    }
-
-    @RequiresApi(api = Build.VERSION_CODES.M)
-    public RecoverableKeyPair reWrapAgreementKeyPair(RecoverableKeyPair recoverableKeyPair, String currentPassword, String newPassword) throws NoSuchAlgorithmException, InvalidKeySpecException, InvalidAlgorithmParameterException, NoSuchPaddingException, IllegalBlockSizeException, BadPaddingException, InvalidKeyException {
-        PrivateKey privateKey = unwrapPrivateKey(
-            Base64.decode(recoverableKeyPair.privateKey.ciphertext, Base64.NO_WRAP),
-            Base64.decode(recoverableKeyPair.privateKey.iv, Base64.NO_WRAP),
-            generatePasswordKey(currentPassword, recoverableKeyPair.privateKey.salt)
-        );
-
-        return new RecoverableKeyPair(
-            keyToRecoverableKey(privateKey, newPassword, generateSalt()),
-            recoverableKeyPair.publicKey
-        );
-    }
-
-    @RequiresApi(api = Build.VERSION_CODES.M)
-    public RecoverableKeyPair reWrapAgreementKeyPair(RecoverableKeyPair recoverableKeyPair, String currentPassword, String newPassword, String newSalt) throws NoSuchAlgorithmException, InvalidKeySpecException, InvalidAlgorithmParameterException, NoSuchPaddingException, IllegalBlockSizeException, BadPaddingException, InvalidKeyException {
-        PrivateKey privateKey = unwrapPrivateKey(
-            Base64.decode(recoverableKeyPair.privateKey.ciphertext, Base64.NO_WRAP),
-            Base64.decode(recoverableKeyPair.privateKey.iv, Base64.NO_WRAP),
-            generatePasswordKey(currentPassword, recoverableKeyPair.privateKey.salt)
-        );
-
-        return new RecoverableKeyPair(
-            keyToRecoverableKey(privateKey, newPassword, Base64.decode(newSalt, Base64.NO_WRAP)),
-            recoverableKeyPair.publicKey
-        );
-    }
-
-    @RequiresApi(api = Build.VERSION_CODES.M)
-    public RecoverableKey reWrapKey(RecoverableKey recoverableKey, String currentPassword, String newPassword) throws NoSuchAlgorithmException, InvalidKeySpecException, InvalidAlgorithmParameterException, NoSuchPaddingException, IllegalBlockSizeException, BadPaddingException, InvalidKeyException {
-        SecretKey secretKey = unwrapSecretKey(
+        SecretKey unwrappedKey = unwrapSecretKey(
             Base64.decode(recoverableKey.ciphertext, Base64.NO_WRAP),
             Base64.decode(recoverableKey.iv, Base64.NO_WRAP),
-            generatePasswordKey(currentPassword, recoverableKey.salt)
+            unwrapKey
         );
 
-        return keyToRecoverableKey(secretKey, newPassword, generateSalt());
+        byte[] salt = rewrapWith instanceof PasswordWrappingParams rewrapParams
+            ? rewrapParams.fillSalt()
+            : null;
+
+        SecretKey rewrapKey = resolveEncryptionKey(rewrapWith);
+
+        return new RecoverableKey(
+            wrapKey(unwrappedKey, rewrapKey),
+            salt
+        );
     }
 
     @RequiresApi(api = Build.VERSION_CODES.M)
-    public RecoverableKey reWrapKey(RecoverableKey recoverableKey, String currentPassword, String newPassword, String newSalt) throws NoSuchAlgorithmException, InvalidKeySpecException, InvalidAlgorithmParameterException, NoSuchPaddingException, IllegalBlockSizeException, BadPaddingException, InvalidKeyException {
-        SecretKey secretKey = unwrapSecretKey(
+    private RecoverableKey rewrapPrivateKey(RecoverableKey recoverableKey, EncryptionKeySpec unwrapWith, EncryptionKeySpec rewrapWith) throws GeneralSecurityException, IOException {
+        if (unwrapWith instanceof PasswordWrappingParams unwrapParams) {
+            unwrapParams.fillSalt(recoverableKey.salt);
+        }
+        SecretKey unwrapKey = resolveEncryptionKey(unwrapWith);
+
+        PrivateKey unwrappedKey = unwrapPrivateKey(
             Base64.decode(recoverableKey.ciphertext, Base64.NO_WRAP),
             Base64.decode(recoverableKey.iv, Base64.NO_WRAP),
-            generatePasswordKey(currentPassword, recoverableKey.salt)
+            unwrapKey
         );
 
-        return keyToRecoverableKey(secretKey, newPassword, Base64.decode(newSalt, Base64.NO_WRAP));
+        byte[] salt = rewrapWith instanceof PasswordWrappingParams rewrapParams
+            ? rewrapParams.fillSalt()
+            : null;
+
+        SecretKey rewrapKey = resolveEncryptionKey(rewrapWith);
+
+        return new RecoverableKey(
+            wrapKey(unwrappedKey, rewrapKey),
+            salt
+        );
     }
 
     @RequiresApi(api = Build.VERSION_CODES.M)
-    public void recoverSignatureKeyPair(String alias, RecoverableKeyPair recoverableKeyPair, String password) throws InvalidAlgorithmParameterException, NoSuchPaddingException, IllegalBlockSizeException, CertificateException, KeyStoreException, IOException, NoSuchAlgorithmException, InvalidKeySpecException, BadPaddingException, InvalidKeyException, OperatorCreationException {
-        recoverKeyPair(alias, recoverableKeyPair, password, KeyProperties.PURPOSE_SIGN | KeyProperties.PURPOSE_VERIFY);
+    public RecoverableKeyPair rewrapSignatureKeyPair(RecoverableKeyPair recoverableKeyPair, EncryptionKeySpec unwrapWith, EncryptionKeySpec rewrapWith) throws GeneralSecurityException, IOException {
+        RecoverableKey rewrappedKey = rewrapPrivateKey(recoverableKeyPair.privateKey, unwrapWith, rewrapWith);
+
+        return new RecoverableKeyPair(
+            rewrappedKey,
+            recoverableKeyPair.publicKey
+        );
+    }
+
+    @RequiresApi(api = Build.VERSION_CODES.M)
+    public RecoverableKeyPair rewrapAgreementKeyPair(RecoverableKeyPair recoverableKeyPair, EncryptionKeySpec unwrapWith, EncryptionKeySpec rewrapWith) throws GeneralSecurityException, IOException {
+        RecoverableKey rewrappedKey = rewrapPrivateKey(recoverableKeyPair.privateKey, unwrapWith, rewrapWith);
+
+        return new RecoverableKeyPair(
+            rewrappedKey,
+            recoverableKeyPair.publicKey
+        );
+    }
+
+    @RequiresApi(api = Build.VERSION_CODES.M)
+    private void recoverKeyPair(String alias, RecoverableKeyPair recoverableKeyPair, EncryptionKeySpec spec, int purposes) throws GeneralSecurityException, IOException, OperatorCreationException {
+        KeyStore ks = loadKeyStore();
+
+        if (spec instanceof PasswordWrappingParams passwordParams) {
+            passwordParams.fillSalt(recoverableKeyPair.privateKey.salt);
+        }
+
+        SecretKey encryptionKey = resolveEncryptionKey(spec);
+
+        PrivateKey privateKey = unwrapPrivateKey(
+            Base64.decode(recoverableKeyPair.privateKey.ciphertext, Base64.NO_WRAP),
+            Base64.decode(recoverableKeyPair.privateKey.iv, Base64.NO_WRAP),
+            encryptionKey
+        );
+        KeyFactory kf = KeyFactory.getInstance(KeyProperties.KEY_ALGORITHM_EC);
+
+        ks.setEntry(
+            alias,
+            new KeyStore.PrivateKeyEntry(
+                privateKey,
+                new Certificate[] {
+                    generateSelfSignedCertificate(
+                        privateKey,
+                        kf.generatePublic(
+                            new X509EncodedKeySpec(Base64.decode(recoverableKeyPair.publicKey, Base64.NO_WRAP))
+                        )
+                    )
+                }
+            ),
+            new KeyProtection.Builder(purposes)
+                .setDigests(KeyProperties.DIGEST_SHA256)
+                .build()
+        );
+    }
+
+    @RequiresApi(api = Build.VERSION_CODES.M)
+    public void recoverSignatureKeyPair(String alias, RecoverableKeyPair recoverableKeyPair, EncryptionKeySpec spec) throws GeneralSecurityException, IOException, OperatorCreationException {
+        recoverKeyPair(alias, recoverableKeyPair, spec, KeyProperties.PURPOSE_SIGN | KeyProperties.PURPOSE_VERIFY);
     }
 
     @RequiresApi(api = Build.VERSION_CODES.S)
-    public void recoverAgreementKeyPair(String alias, RecoverableKeyPair recoverableKeyPair, String password) throws InvalidAlgorithmParameterException, NoSuchPaddingException, IllegalBlockSizeException, CertificateException, KeyStoreException, IOException, NoSuchAlgorithmException, InvalidKeySpecException, BadPaddingException, InvalidKeyException, OperatorCreationException {
-        recoverKeyPair(alias, recoverableKeyPair, password, KeyProperties.PURPOSE_AGREE_KEY);
+    public void recoverAgreementKeyPair(String alias, RecoverableKeyPair recoverableKeyPair, EncryptionKeySpec spec) throws GeneralSecurityException, IOException, OperatorCreationException {
+        recoverKeyPair(alias, recoverableKeyPair, spec, KeyProperties.PURPOSE_AGREE_KEY);
     }
 
     @RequiresApi(api = Build.VERSION_CODES.M)
-    public void recoverKey(String alias, RecoverableKey recoverableKey, String password) throws NoSuchAlgorithmException, KeyStoreException, CertificateException, IOException, InvalidKeySpecException, InvalidAlgorithmParameterException, NoSuchPaddingException, IllegalBlockSizeException, BadPaddingException, InvalidKeyException {
+    public void recoverKey(String alias, RecoverableKey recoverableKey, EncryptionKeySpec spec) throws GeneralSecurityException, IOException {
         KeyStore ks = loadKeyStore();
+
+        if (spec instanceof PasswordWrappingParams passwordParams) {
+            passwordParams.fillSalt(recoverableKey.salt);
+        }
+        SecretKey encryptionKey = resolveEncryptionKey(spec);
 
         ks.setEntry(
             alias,
@@ -218,7 +298,7 @@ public class KeyManager {
                 unwrapSecretKey(
                     Base64.decode(recoverableKey.ciphertext, Base64.NO_WRAP),
                     Base64.decode(recoverableKey.iv, Base64.NO_WRAP),
-                    generatePasswordKey(password, recoverableKey.salt)
+                    encryptionKey
                 )
             ),
             new KeyProtection.Builder(KeyProperties.PURPOSE_ENCRYPT | KeyProperties.PURPOSE_DECRYPT)
@@ -239,86 +319,29 @@ public class KeyManager {
         importPublicKey(alias, publicKey, KeyProperties.PURPOSE_AGREE_KEY);
     }
 
-    @RequiresApi(api = Build.VERSION_CODES.M)
-    public SerializedEncryptedMessage encryptWithAgreedKey(String privateKeyAlias, String publicKeyAlias, String cleartext, String info) throws GeneralSecurityException, IOException {
-        byte[] sharedSecret = deriveAgreedKey(privateKeyAlias, publicKeyAlias);
-        byte[] derivedSecret = deriveInfoKey(sharedSecret, info);
-        SecretKey secretKey = new SecretKeySpec(derivedSecret, 0, 32, "AES/GCM/NoPadding");
+    public SerializedEncryptedMessage encrypt(EncryptionKeySpec spec, String cleartext) throws GeneralSecurityException, IOException {
+        if (spec instanceof PasswordWrappingParams passwordParams) {
+            passwordParams.fillSalt();
+        }
+        SecretKey encryptionKey = resolveEncryptionKey(spec);
 
-        return serializeEncryptedMessage(encrypt(cleartext, secretKey));
+        return encrypt(
+            cleartext,
+            encryptionKey
+        ).serialize();
     }
 
-    @RequiresApi(api = Build.VERSION_CODES.M)
-    public SerializedEncryptedMessage encryptWithAgreedKey(String privateKeyAlias, String publicKeyAlias, String cleartext) throws GeneralSecurityException, IOException {
-        byte[] sharedSecret = deriveAgreedKey(privateKeyAlias, publicKeyAlias);
-        SecretKey secretKey = new SecretKeySpec(sharedSecret, 0, 32, "AES/GCM/NoPadding");
-
-        return serializeEncryptedMessage(encrypt(cleartext, secretKey));
-    }
-
-
-    @RequiresApi(api = Build.VERSION_CODES.M)
-    public String decryptWithAgreedKey(String privateKeyAlias, String publicKeyAlias, SerializedEncryptedMessage encryptedMessage, String info) throws GeneralSecurityException, IOException {
-        byte[] sharedSecret = deriveAgreedKey(privateKeyAlias, publicKeyAlias);
-        byte[] derivedSecret = deriveInfoKey(sharedSecret, info);
-        SecretKey secretKey = new SecretKeySpec(derivedSecret, 0, 32, "AES/GCM/NoPadding");
-
-        return decrypt(deserializeEncryptedMessage(encryptedMessage), secretKey);
-    }
-
-    @RequiresApi(api = Build.VERSION_CODES.M)
-    public String decryptWithAgreedKey(String privateKeyAlias, String publicKeyAlias, SerializedEncryptedMessage encryptedMessage) throws GeneralSecurityException, IOException {
-        byte[] sharedSecret = deriveAgreedKey(privateKeyAlias, publicKeyAlias);
-        SecretKey secretKey = new SecretKeySpec(sharedSecret, 0, 32, "AES/GCM/NoPadding");
-
-        return decrypt(deserializeEncryptedMessage(encryptedMessage), secretKey);
-    }
-
-    public SerializedEncryptedMessage encrypt(String alias, String cleartext) throws UnrecoverableEntryException, CertificateException, KeyStoreException, IOException, NoSuchAlgorithmException, InvalidAlgorithmParameterException, NoSuchPaddingException, IllegalBlockSizeException, BadPaddingException, InvalidKeyException {
-        return serializeEncryptedMessage(
-            encrypt(
-                cleartext,
-                loadSecretKey(alias)
-            )
-        );
-    }
-
-    public String decrypt(String alias, SerializedEncryptedMessage message) throws UnrecoverableEntryException, CertificateException, KeyStoreException, IOException, NoSuchAlgorithmException, InvalidAlgorithmParameterException, NoSuchPaddingException, IllegalBlockSizeException, BadPaddingException, InvalidKeyException {
-        return decrypt(
-            deserializeEncryptedMessage(message),
-            loadSecretKey(alias)
-        );
-    }
-
-    public String sign(String keyAlias, String cleartext) throws KeyStoreException, UnrecoverableEntryException, NoSuchAlgorithmException, CertificateException, IOException, InvalidKeyException, SignatureException {
-        Signature s = Signature.getInstance("SHA256withECDSA");
-        s.initSign(loadPrivateKey(keyAlias));
-        s.update(cleartext.getBytes());
-        byte[] signature = s.sign();
-
-        return Base64.encodeToString(signature, Base64.NO_PADDING + Base64.NO_WRAP);
-    }
-
-    public Boolean verify(String keyAlias, String cleartext, String signature) throws KeyStoreException, CertificateException, IOException, NoSuchAlgorithmException, UnrecoverableEntryException, SignatureException, InvalidKeyException {
-        KeyStore ks = loadKeyStore();
-
-        KeyStore.Entry entry = ks.getEntry(keyAlias, null);
-
-        byte[] signatureData = Base64.decode(signature, Base64.NO_PADDING + Base64.NO_WRAP);//Base64.decode(signature, Base64.NO_PADDING + Base64.NO_WRAP);
-
-        Signature s = Signature.getInstance("SHA256withECDSA");
-
-        if ((entry instanceof KeyStore.TrustedCertificateEntry)) {
-            s.initVerify(((KeyStore.TrustedCertificateEntry) entry).getTrustedCertificate().getPublicKey());
-        } else {
-            assert entry instanceof KeyStore.PrivateKeyEntry;
-
-            s.initVerify(((KeyStore.PrivateKeyEntry) entry).getCertificate().getPublicKey());
+    public String decrypt(EncryptionKeySpec spec, SerializedEncryptedMessage message) throws GeneralSecurityException, IOException {
+        if (spec instanceof PasswordWrappingParams passwordParams) {
+            passwordParams.fillSalt();
         }
 
-        s.update(cleartext.getBytes());
+        SecretKey encryptionKey = resolveEncryptionKey(spec);
 
-        return s.verify(signatureData);
+        return decrypt(
+            message.deserialize(),
+            encryptionKey
+        );
     }
 
     private EncryptedMessage encrypt(String cleartext, SecretKey encryptionKey) throws NoSuchPaddingException, NoSuchAlgorithmException, IllegalBlockSizeException, BadPaddingException, InvalidAlgorithmParameterException, InvalidKeyException {
@@ -353,44 +376,35 @@ public class KeyManager {
         return cipher.doFinal(encryptedData);
     }
 
-    private SerializedEncryptedMessage serializeEncryptedMessage(EncryptedMessage encryptedMessage) {
-        return new SerializedEncryptedMessage(
-            Base64.encodeToString(encryptedMessage.data, Base64.NO_WRAP),
-            Base64.encodeToString(encryptedMessage.iv, Base64.NO_WRAP)
-        );
+    public String sign(String keyAlias, String cleartext) throws KeyStoreException, UnrecoverableEntryException, NoSuchAlgorithmException, CertificateException, IOException, InvalidKeyException, SignatureException {
+        Signature s = Signature.getInstance("SHA256withECDSA");
+        s.initSign(loadPrivateKey(keyAlias));
+        s.update(cleartext.getBytes());
+        byte[] signature = s.sign();
+
+        return Base64.encodeToString(signature, Base64.NO_PADDING + Base64.NO_WRAP);
     }
 
-    private EncryptedMessage deserializeEncryptedMessage(SerializedEncryptedMessage encryptedMessage) {
-        return new EncryptedMessage(
-            Base64.decode(encryptedMessage.ciphertext, Base64.NO_WRAP),
-            Base64.decode(encryptedMessage.iv, Base64.NO_WRAP)
-        );
-    }
+    public Boolean verify(String keyAlias, String cleartext, String signature) throws KeyStoreException, CertificateException, IOException, NoSuchAlgorithmException, UnrecoverableEntryException, SignatureException, InvalidKeyException {
+        KeyStore ks = loadKeyStore();
 
-    private RecoverableKey keyToRecoverableKey(Key key, String password, byte[] salt) throws NoSuchAlgorithmException, InvalidKeySpecException, InvalidAlgorithmParameterException, NoSuchPaddingException, IllegalBlockSizeException, BadPaddingException, InvalidKeyException {
-        String saltStr = Base64.encodeToString(salt, Base64.NO_WRAP);
+        KeyStore.Entry entry = ks.getEntry(keyAlias, null);
 
-        SecretKey wrappingKey = generatePasswordKey(password, saltStr);
-        EncryptedMessage encryptedKey = wrapKey(key, wrappingKey);
+        byte[] signatureData = Base64.decode(signature, Base64.NO_PADDING + Base64.NO_WRAP);//Base64.decode(signature, Base64.NO_PADDING + Base64.NO_WRAP);
 
-        return new RecoverableKey(
-            Base64.encodeToString(encryptedKey.data, Base64.NO_WRAP),
-            Base64.encodeToString(encryptedKey.iv, Base64.NO_WRAP),
-            saltStr
-        );
-    }
+        Signature s = Signature.getInstance("SHA256withECDSA");
 
-    private RecoverableKeyPair keyPairToRecoverableKeyPair(KeyPair keyPair, String password, byte[] salt) throws NoSuchAlgorithmException, InvalidKeySpecException, InvalidAlgorithmParameterException, NoSuchPaddingException, IllegalBlockSizeException, BadPaddingException, InvalidKeyException {
-        SerializedEncryptedMessage serializedEncryptedMessage = serializeEncryptedMessage(wrapKey(keyPair.getPrivate(), generatePasswordKey(password, salt)));
+        if ((entry instanceof KeyStore.TrustedCertificateEntry)) {
+            s.initVerify(((KeyStore.TrustedCertificateEntry) entry).getTrustedCertificate().getPublicKey());
+        } else {
+            assert entry instanceof KeyStore.PrivateKeyEntry;
 
-        return new RecoverableKeyPair(
-            new RecoverableKey(
-                serializedEncryptedMessage.ciphertext,
-                serializedEncryptedMessage.iv,
-                Base64.encodeToString(salt, Base64.NO_WRAP)
-            ),
-            Base64.encodeToString(keyPair.getPublic().getEncoded(), Base64.NO_WRAP)
-        );
+            s.initVerify(((KeyStore.PrivateKeyEntry) entry).getCertificate().getPublicKey());
+        }
+
+        s.update(cleartext.getBytes());
+
+        return s.verify(signatureData);
     }
 
     private SecretKey loadSecretKey(String keyAlias) throws KeyStoreException, CertificateException, IOException, NoSuchAlgorithmException, UnrecoverableEntryException {
@@ -411,10 +425,6 @@ public class KeyManager {
         return ((KeyStore.PrivateKeyEntry) entry).getPrivateKey();
     }
 
-    private KeyPair loadKeyPair(String keyAlias) throws CertificateException, KeyStoreException, IOException, NoSuchAlgorithmException, UnrecoverableEntryException {
-        return loadKeyPair(keyAlias, loadKeyStore());
-    }
-
     private KeyPair loadKeyPair(String keyAlias, KeyStore keyStore) throws UnrecoverableEntryException, KeyStoreException, NoSuchAlgorithmException {
         KeyStore.PrivateKeyEntry entry = ((KeyStore.PrivateKeyEntry) keyStore.getEntry(keyAlias, null));
 
@@ -431,10 +441,6 @@ public class KeyManager {
             return ((KeyStore.TrustedCertificateEntry) publicKeyEntry).getTrustedCertificate().getPublicKey();
         }
         return ((KeyStore.PrivateKeyEntry) publicKeyEntry).getCertificate().getPublicKey();
-    }
-
-    private PublicKey loadPublicKey(String keyAlias) throws KeyStoreException, CertificateException, IOException, NoSuchAlgorithmException, UnrecoverableEntryException {
-        return loadPublicKey(keyAlias, loadKeyStore());
     }
 
     private KeyStore loadKeyStore() throws KeyStoreException, CertificateException, IOException, NoSuchAlgorithmException {
@@ -462,36 +468,6 @@ public class KeyManager {
                         new X509EncodedKeySpec(Base64.decode(publicKey, Base64.NO_WRAP))
                     )
                 )
-            ),
-            new KeyProtection.Builder(purposes)
-                .setDigests(KeyProperties.DIGEST_SHA256)
-                .build()
-        );
-    }
-
-    @RequiresApi(api = Build.VERSION_CODES.M)
-    private void recoverKeyPair(String alias, RecoverableKeyPair recoverableKeyPair, String password, int purposes) throws KeyStoreException, CertificateException, IOException, NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeySpecException, InvalidAlgorithmParameterException, IllegalBlockSizeException, BadPaddingException, InvalidKeyException, OperatorCreationException {
-        KeyStore ks = loadKeyStore();
-
-        PrivateKey privateKey = unwrapPrivateKey(
-            Base64.decode(recoverableKeyPair.privateKey.ciphertext, Base64.NO_WRAP),
-            Base64.decode(recoverableKeyPair.privateKey.iv, Base64.NO_WRAP),
-            generatePasswordKey(password, recoverableKeyPair.privateKey.salt)
-        );
-        KeyFactory kf = KeyFactory.getInstance(KeyProperties.KEY_ALGORITHM_EC);
-
-        ks.setEntry(
-            alias,
-            new KeyStore.PrivateKeyEntry(
-                privateKey,
-                new Certificate[] {
-                    generateSelfSignedCertificate(
-                        privateKey,
-                        kf.generatePublic(
-                            new X509EncodedKeySpec(Base64.decode(recoverableKeyPair.publicKey, Base64.NO_WRAP))
-                        )
-                    )
-                }
             ),
             new KeyProtection.Builder(purposes)
                 .setDigests(KeyProperties.DIGEST_SHA256)
@@ -556,32 +532,6 @@ public class KeyManager {
         );
     }
 
-    @RequiresApi(api = Build.VERSION_CODES.M)
-    private RecoverableKeyPair generateRecoverableSignatureKeyPair(String password, byte[] salt) throws InvalidAlgorithmParameterException, NoSuchAlgorithmException, InvalidKeySpecException, NoSuchPaddingException, IllegalBlockSizeException, CertificateException, KeyStoreException, IOException, BadPaddingException, InvalidKeyException, OperatorCreationException {
-        KeyPairGenerator generator = KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_EC);
-
-        generator.initialize(new ECGenParameterSpec("secp521r1"));
-
-        return keyPairToRecoverableKeyPair(generator.generateKeyPair(), password, salt);
-    }
-
-    @RequiresApi(api = Build.VERSION_CODES.S)
-    private RecoverableKeyPair generateRecoverableAgreementKeyPair(String password, byte[] salt) throws InvalidAlgorithmParameterException, NoSuchAlgorithmException, InvalidKeySpecException, NoSuchPaddingException, IllegalBlockSizeException, CertificateException, KeyStoreException, IOException, BadPaddingException, InvalidKeyException, OperatorCreationException {
-        KeyPairGenerator generator = KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_EC);
-
-        generator.initialize(new ECGenParameterSpec("secp521r1"));
-
-        return keyPairToRecoverableKeyPair(generator.generateKeyPair(), password, salt);
-    }
-
-    @RequiresApi(api = Build.VERSION_CODES.M)
-    private RecoverableKey generateRecoverableKey(String password, byte[] salt) throws NoSuchAlgorithmException, InvalidKeySpecException, InvalidAlgorithmParameterException, NoSuchPaddingException, IllegalBlockSizeException, BadPaddingException, InvalidKeyException, CertificateException, KeyStoreException, IOException {
-        KeyGenerator keyGenerator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES);
-        keyGenerator.init(256);
-
-        return keyToRecoverableKey(keyGenerator.generateKey(), password, salt);
-    }
-
     private X509Certificate generateSelfSignedCertificate(PrivateKey privateKey, PublicKey publicKey) throws IOException, OperatorCreationException, CertificateException {
         AlgorithmIdentifier sigAlgId = new DefaultSignatureAlgorithmIdentifierFinder().find("SHA512WITHPLAIN-ECDSA");//""SHA512WITHECDSA");
         AlgorithmIdentifier digAlgId = new DefaultDigestAlgorithmIdentifierFinder().find(sigAlgId);
@@ -596,38 +546,14 @@ public class KeyManager {
         notAfter.add(Calendar.YEAR, 20); // This certificate is valid for 20 years.
 
         X509v3CertificateBuilder v3CertGen = new X509v3CertificateBuilder(issuer,
-                serial,
-                notBefore.getTime(),
-                notAfter.getTime(),
-                subject,
-                spki
+            serial,
+            notBefore.getTime(),
+            notAfter.getTime(),
+            subject,
+            spki
         );
         X509CertificateHolder certificateHolder = v3CertGen.build(signer);
 
         return new JcaX509CertificateConverter().getCertificate(certificateHolder);
-    }
-
-    private byte[] generateSalt() {
-        byte[] salt = new byte[128];
-
-        SecureRandom secRandom = new SecureRandom();
-        secRandom.nextBytes(salt);
-
-        return salt;
-    }
-
-    private SecretKey generatePasswordKey(String password, String salt) throws NoSuchAlgorithmException, InvalidKeySpecException {
-        return generatePasswordKey(password, Base64.decode(salt, Base64.NO_WRAP));
-    }
-
-    private SecretKey generatePasswordKey(String password, byte[] salt) throws NoSuchAlgorithmException, InvalidKeySpecException {
-        return SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(
-                new PBEKeySpec(
-                        password.toCharArray(),
-                        salt,
-                        100000,
-                        32 * 8
-                )
-        );
     }
 }

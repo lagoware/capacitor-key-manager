@@ -11,14 +11,14 @@ import {
     IDBTransaction,
     IDBVersionChangeEvent,
 } from 'fake-indexeddb';
-import { writeFile } from 'fs/promises';
 import webCrypto from 'tiny-webcrypto';
-import { test as baseTest, vi, expect } from 'vitest';
-import type { KeyManagerWebPlugin } from '../src/definitions';
-import { base64Encode, KeyManager } from '../src/key-manager';
-import { IdbKeyStore } from '../src/idb-key-store';
+import { test as baseTest, expect } from 'vitest';
 
-export function setupFakeIdb() {
+import type { KeyManagerWebPlugin } from '../src/definitions';
+import { IdbKeyStore } from '../src/idb-key-store';
+import { base64Encode, KeyManager } from '../src/key-manager';
+
+export function setupFakeIdb(): void {
     const fakeIndexedDB = new IDBFactory();
 
     globalThis.indexedDB = fakeIndexedDB;
@@ -38,6 +38,7 @@ export function setupFakeIdb() {
 const test = baseTest.extend<{
     keyManager: KeyManagerWebPlugin
 }>({
+    // eslint-disable-next-line no-empty-pattern
     keyManager: async ({}, use) => {
         setupFakeIdb();
         const keyManager = new KeyManager();
@@ -45,9 +46,11 @@ const test = baseTest.extend<{
         await use(keyManager);
     },
 });
-const publicKeyRegEx = /[a-zA-Z0-9\/\+\=]{212}/g;
-const saltRegEx = /[a-zA-Z0-9\/\+\=]{172}/g;
-const ivRegEx = /[a-zA-Z0-9\/\+\=]{16}/g;
+const publicKeyRegEx = /[a-zA-Z0-9/+=]{212}/g;
+const saltRegEx = /[a-zA-Z0-9/+=]{172}/g;
+const ivRegEx = /[a-zA-Z0-9/+=]{16}/g;
+const encKeyRegex = /[a-zA-Z0-9/+=]{344}/g;
+const encSymKeyRegex = /[a-zA-Z0-9/+=]{64}/g;
 
 const recoverableSigKeyPairJson = {
     "privateKey": {
@@ -73,8 +76,61 @@ const recoverableKeyJson = {
     "salt": "x7/vx7ikOd122eMF7g0RbdwGKlZKyHDpJHJiJ58BBTH+w0Hys+o/zRw2KagXIr8oablCUAO0OqlLeTxjrn9ZwXKk9bNZ7O+1LUHHY0H8hYo/ouR3DUuxPh1dLlsvBLbww0V/7JKbt0zKwmnUhaxsQRfbWlzlqrcRm9+tbei7tms="
 };
 
+test('KeyManager#checkAliasExists', async ({ keyManager }) => {
+    await expect(keyManager.checkAliasExists({ keyAlias: 'Donker' })).resolves.toEqual({ aliasExists: false });
+    await keyManager.generateKey({ keyAlias: 'Donker' });
+    await expect(keyManager.checkAliasExists({ keyAlias: 'Donker' })).resolves.toEqual({ aliasExists: true });
+    await expect(keyManager.checkAliasExists({ keyAlias: 'Stanko' })).resolves.toEqual({ aliasExists: false });
+});
+
+test('KeyManager#generateKey', async ({ keyManager }) => {
+    await keyManager.generateKey({ keyAlias: 'Donker' });
+
+    const cleartext = 'Banko';
+
+    await expect(
+        keyManager.decrypt({ 
+            decryptWith: { keyAlias: 'Donker' },
+            encryptedMessage: (
+                await keyManager.encrypt({ encryptWith: { keyAlias: 'Donker' }, cleartext })
+            ).encryptedMessage 
+        })
+    ).resolves.toEqual({ cleartext });
+});
+
+test('KeyManager#generateRecoverableKey', async ({ keyManager }) => {
+    const importAlias = 'Badonkey';
+    const password = 'Scrammi';
+
+    const { recoverableKey } = await keyManager.generateRecoverableKey({ password: 'Scrammi' });
+
+    // await writeFile('recoverable-key.json', JSON.stringify(recoverableKey));
+
+    expect(recoverableKey).toEqual({
+        salt: expect.stringMatching(saltRegEx),
+        iv: expect.stringMatching(ivRegEx),
+        ciphertext: expect.stringMatching(encSymKeyRegex)
+    });
+    
+    const cleartext = 'Wigmans';
+
+    await keyManager.recoverKey({ importAlias, recoverableKey, unwrapWith: { password } });
+
+    expect(
+        (await keyManager
+            .decrypt({
+                decryptWith: { keyAlias: importAlias },
+                encryptedMessage: (await keyManager.encrypt({
+                    encryptWith: { keyAlias: importAlias },
+                    cleartext
+                })).encryptedMessage
+            })
+        ).cleartext
+    ).toBe(cleartext);
+});
+
 test('KeyManager#generateRecoverableSignatureKeyPair', async ({ keyManager }) => {
-    const alias = 'Badonkey';
+    const importAlias = 'Badonkey';
     const password = 'Scrammi';
 
     const { recoverableKeyPair } = await keyManager.generateRecoverableSignatureKeyPair({ password });
@@ -85,19 +141,19 @@ test('KeyManager#generateRecoverableSignatureKeyPair', async ({ keyManager }) =>
         privateKey: {
             salt: expect.stringMatching(saltRegEx),
             iv: expect.stringMatching(ivRegEx),
-            ciphertext: expect.stringMatching(/[a-zA-Z0-9\/\+\=]{344}/g)
+            ciphertext: expect.stringMatching(encKeyRegex)
         }
     });
 
-    await keyManager.recoverSignatureKeyPair({ alias, recoverableKeyPair, password });
+    await keyManager.recoverSignatureKeyPair({ importAlias, recoverableKeyPair, unwrapWith: { password } });
 
     const { signature } = await keyManager.sign({
-        keyAlias: alias,
+        keyAlias: importAlias,
         cleartext: 'Wigmans'
     });
 
     const { isValid } = await keyManager.verify({
-        keyAlias: alias,
+        keyAlias: importAlias,
         cleartext: 'Wigmans',
         signature
     });
@@ -105,35 +161,166 @@ test('KeyManager#generateRecoverableSignatureKeyPair', async ({ keyManager }) =>
     expect(isValid).true;
 });
 
-test('KeyManager#recoverSignatureKeyPair', async ({ keyManager }) => {
-    const alias = 'Badonkey';
+test('KeyManager#generateRecoverableAgreementKeyPair', async ({ keyManager }) => {
+    const importAlias = 'Badonkey';
     const password = 'Scrammi';
 
-    await expect(() => keyManager.recoverSignatureKeyPair({
-        alias,
-        password: 'Bramson',
-        recoverableKeyPair: recoverableSigKeyPairJson
-    })).rejects.toThrowError();
+    const { recoverableKeyPair } = await keyManager.generateRecoverableAgreementKeyPair({ password });
 
-    await keyManager.recoverSignatureKeyPair({
-        alias,
-        password,
-        recoverableKeyPair: recoverableSigKeyPairJson
+    // await writeFile('recoverable-agree-key-pair.json', JSON.stringify(recoverableKeyPair));
+
+    expect(recoverableKeyPair).toEqual({
+        publicKey: expect.stringMatching(publicKeyRegEx),
+        privateKey: {
+            salt: expect.stringMatching(saltRegEx),
+            iv: expect.stringMatching(ivRegEx),
+            ciphertext: expect.stringMatching(encKeyRegex)
+        }
     });
 
-    const { signature } = await keyManager.sign({
-        keyAlias: alias,
-        cleartext: 'Wigmans'
-    });
+    await keyManager.recoverAgreementKeyPair({ importAlias, recoverableKeyPair, unwrapWith: { password } });
+    
+    const cleartext = 'Wigmans';
 
-    const { isValid } = await keyManager.verify({
-        keyAlias: alias,
-        cleartext: 'Wigmans',
-        signature
-    });
+    expect(
+        (await keyManager
+            .decrypt({ 
+                decryptWith: { 
+                    keyAlias: 'Badonkey',
+                    publicKeyAlias: 'Badonkey'
+                },
+                encryptedMessage: (await keyManager.encrypt({
+                    encryptWith: {
+                        keyAlias: 'Badonkey',
+                        publicKeyAlias: 'Badonkey',
+                    },
+                    cleartext
+                })).encryptedMessage
+            })
+        ).cleartext
+    ).toBe(cleartext);
 
-    expect(isValid).true;
+    await keyManager.importPublicAgreementKey({ alias: "OtherGuyKey", publicKey: recoverableAgreeKeyPairJson.publicKey });
+    
+    expect(
+        (await keyManager
+            .decrypt({
+                decryptWith: {
+                    keyAlias: 'Badonkey', 
+                    publicKeyAlias: 'OtherGuyKey', 
+                },
+                encryptedMessage: (await keyManager.encrypt({
+                    encryptWith: {
+                        keyAlias: 'Badonkey',
+                        publicKeyAlias: 'OtherGuyKey',
+                    },
+                    cleartext
+                })).encryptedMessage
+            })
+        ).cleartext
+    ).toBe(cleartext);
+
+    expect(
+        (await keyManager
+            .decrypt({ 
+                decryptWith: {
+                    keyAlias: 'Badonkey', 
+                    publicKeyAlias: 'OtherGuyKey', 
+                    info: "Word",
+                },
+                encryptedMessage: (await keyManager.encrypt({
+                    encryptWith: {
+                        keyAlias: 'Badonkey',
+                        publicKeyAlias: 'OtherGuyKey',
+                        info: "Word",
+                    },
+                    cleartext
+                })).encryptedMessage
+            })
+        ).cleartext
+    ).toBe(cleartext);
 });
+
+test('KeyManager#generateRecoverableAgreementKeyPair with key', async ({ keyManager }) => {
+    const importAlias = 'Badonkey';
+    const password = 'Scrammi';
+
+    const { recoverableKey } = await keyManager.generateRecoverableKey({ password });
+    await keyManager.recoverKey({ importAlias: 'WrappingKey', recoverableKey, unwrapWith: { password } });
+
+    const { recoverableKeyPair } = await keyManager.generateRecoverableAgreementKeyPair({ keyAlias: 'WrappingKey' });
+
+    expect(recoverableKeyPair).toEqual({
+        publicKey: expect.stringMatching(publicKeyRegEx),
+        privateKey: {
+            iv: expect.stringMatching(ivRegEx),
+            ciphertext: expect.stringMatching(encKeyRegex)
+        }
+    });
+
+    await keyManager.recoverAgreementKeyPair({ importAlias, recoverableKeyPair, unwrapWith: { keyAlias: 'WrappingKey' } });
+    
+    const cleartext = 'Wigmans';
+
+    expect(
+        (await keyManager
+            .decrypt({ 
+                decryptWith: { 
+                    keyAlias: 'Badonkey',
+                    publicKeyAlias: 'Badonkey'
+                },
+                encryptedMessage: (await keyManager.encrypt({
+                    encryptWith: {
+                        keyAlias: 'Badonkey',
+                        publicKeyAlias: 'Badonkey',
+                    },
+                    cleartext
+                })).encryptedMessage
+            })
+        ).cleartext
+    ).toBe(cleartext);
+
+    await keyManager.importPublicAgreementKey({ alias: "OtherGuyKey", publicKey: recoverableAgreeKeyPairJson.publicKey });
+    
+    expect(
+        (await keyManager
+            .decrypt({
+                decryptWith: {
+                    keyAlias: 'Badonkey', 
+                    publicKeyAlias: 'OtherGuyKey', 
+                },
+                encryptedMessage: (await keyManager.encrypt({
+                    encryptWith: {
+                        keyAlias: 'Badonkey',
+                        publicKeyAlias: 'OtherGuyKey',
+                    },
+                    cleartext
+                })).encryptedMessage
+            })
+        ).cleartext
+    ).toBe(cleartext);
+
+    expect(
+        (await keyManager
+            .decrypt({ 
+                decryptWith: {
+                    keyAlias: 'Badonkey', 
+                    publicKeyAlias: 'OtherGuyKey', 
+                    info: "Word",
+                },
+                encryptedMessage: (await keyManager.encrypt({
+                    encryptWith: {
+                        keyAlias: 'Badonkey',
+                        publicKeyAlias: 'OtherGuyKey',
+                        info: "Word",
+                    },
+                    cleartext
+                })).encryptedMessage
+            })
+        ).cleartext
+    ).toBe(cleartext);
+});
+
 
 test('KeyManager#importPublicSignatureKey', async ({ keyManager }) => {
     const keyPair = await webCrypto.subtle.generateKey(
@@ -175,67 +362,44 @@ test('KeyManager#importPublicSignatureKey', async ({ keyManager }) => {
     expect(bogusIsValid).false;
 });
 
-test('KeyManager#generateRecoverableAgreementKeyPair', async ({ keyManager }) => {
-    const alias = 'Badonkey';
+test('KeyManager#importPublicAgreementKey', async ({ keyManager }) => {
+    const importAlias = 'Badonkey';
     const password = 'Scrammi';
 
     const { recoverableKeyPair } = await keyManager.generateRecoverableAgreementKeyPair({ password });
 
-    // await writeFile('recoverable-agree-key-pair.json', JSON.stringify(recoverableKeyPair));
+    await keyManager.recoverAgreementKeyPair({ importAlias, recoverableKeyPair, unwrapWith: { password } });
 
-    expect(recoverableKeyPair).toEqual({
-        publicKey: expect.stringMatching(publicKeyRegEx),
-        privateKey: {
-            salt: expect.stringMatching(saltRegEx),
-            iv: expect.stringMatching(ivRegEx),
-            ciphertext: expect.stringMatching(/[a-zA-Z0-9\/\+\=]{344}/g)
-        }
+    const otherKeyPair = await webCrypto.subtle.generateKey(
+        {
+            name: "ECDH",
+            namedCurve: "P-521",
+        },
+        false,
+        ["deriveKey"],
+    );
+
+    await keyManager.importPublicAgreementKey({
+        alias: 'OtherGuyKey',
+        publicKey: base64Encode(await webCrypto.subtle.exportKey('spki', otherKeyPair.publicKey))
     });
 
-    await keyManager.recoverAgreementKeyPair({ alias, recoverableKeyPair, password });
-    
-    const cleartext = 'Wigmans';
+    const cleartext = "Donkey Bronkey";
 
     expect(
         (await keyManager
-            .decryptWithAgreedKey({ 
-                privateKeyAlias: 'Badonkey', 
-                publicKeyAlias: 'Badonkey', 
-                encryptedMessage: (await keyManager.encryptWithAgreedKey({
-                    privateKeyAlias: 'Badonkey',
-                    publicKeyAlias: 'Badonkey',
-                    cleartext
-                })).encryptedMessage
-            })
-        ).cleartext
-    ).toBe(cleartext);
-
-    await keyManager.importPublicAgreementKey({ alias: "OtherGuyKey", publicKey: recoverableAgreeKeyPairJson.publicKey });
-    
-    expect(
-        (await keyManager
-            .decryptWithAgreedKey({ 
-                privateKeyAlias: 'Badonkey', 
-                publicKeyAlias: 'OtherGuyKey', 
-                encryptedMessage: (await keyManager.encryptWithAgreedKey({
-                    privateKeyAlias: 'Badonkey',
-                    publicKeyAlias: 'OtherGuyKey',
-                    cleartext
-                })).encryptedMessage
-            })
-        ).cleartext
-    ).toBe(cleartext);
-
-    expect(
-        (await keyManager
-            .decryptWithAgreedKey({ 
-                privateKeyAlias: 'Badonkey', 
-                publicKeyAlias: 'OtherGuyKey', 
-                info: "Word",
-                encryptedMessage: (await keyManager.encryptWithAgreedKey({
-                    privateKeyAlias: 'Badonkey',
-                    publicKeyAlias: 'OtherGuyKey',
+            .decrypt({ 
+                decryptWith: {
+                    keyAlias: 'Badonkey', 
+                    publicKeyAlias: 'OtherGuyKey', 
                     info: "Word",
+                },
+                encryptedMessage: (await keyManager.encrypt({
+                    encryptWith: {
+                        keyAlias: 'Badonkey',
+                        publicKeyAlias: 'OtherGuyKey',
+                        info: "Word",
+                    },
                     cleartext
                 })).encryptedMessage
             })
@@ -245,14 +409,14 @@ test('KeyManager#generateRecoverableAgreementKeyPair', async ({ keyManager }) =>
 
 test('KeyManager#recoverAgreementKeyPair', async ({ keyManager }) => {
     await expect(() => keyManager.recoverAgreementKeyPair({
-        alias: 'Badonkey',
-        password: 'Bramson',
+        importAlias: 'Badonkey',
+        unwrapWith: { password: 'Bramson' },
         recoverableKeyPair: recoverableAgreeKeyPairJson
     })).rejects.toThrowError();
 
     await keyManager.recoverAgreementKeyPair({
-        alias: 'Badonkey',
-        password: 'Scrammi',
+        importAlias: 'Badonkey',
+        unwrapWith: { password: 'Scrammi' },
         recoverableKeyPair: recoverableAgreeKeyPairJson
     });
 
@@ -260,12 +424,16 @@ test('KeyManager#recoverAgreementKeyPair', async ({ keyManager }) => {
 
     expect(
         (await keyManager
-            .decryptWithAgreedKey({ 
-                privateKeyAlias: 'Badonkey', 
-                publicKeyAlias: 'Badonkey', 
-                encryptedMessage: (await keyManager.encryptWithAgreedKey({
-                    privateKeyAlias: 'Badonkey',
-                    publicKeyAlias: 'Badonkey',
+            .decrypt({ 
+                decryptWith: {
+                    keyAlias: 'Badonkey', 
+                    publicKeyAlias: 'Badonkey', 
+                },
+                encryptedMessage: (await keyManager.encrypt({
+                    encryptWith: {
+                        keyAlias: 'Badonkey',
+                        publicKeyAlias: 'Badonkey',
+                    },
                     cleartext
                 })).encryptedMessage
             })
@@ -273,50 +441,51 @@ test('KeyManager#recoverAgreementKeyPair', async ({ keyManager }) => {
     ).toBe(cleartext);
 });
 
-test('KeyManager#generateRecoverableKey', async ({ keyManager }) => {
-    const alias = 'Badonkey';
+test('KeyManager#recoverSignatureKeyPair', async ({ keyManager }) => {
+    const importAlias = 'Badonkey';
     const password = 'Scrammi';
 
-    const { recoverableKey } = await keyManager.generateRecoverableKey({ password: 'Scrammi' });
+    await expect(() => keyManager.recoverSignatureKeyPair({
+        importAlias,
+        unwrapWith: { password: 'Bramson' },
+        recoverableKeyPair: recoverableSigKeyPairJson
+    })).rejects.toThrowError();
 
-    // await writeFile('recoverable-key.json', JSON.stringify(recoverableKey));
-
-    expect(recoverableKey).toEqual({
-        salt: expect.stringMatching(saltRegEx),
-        iv: expect.stringMatching(ivRegEx),
-        ciphertext: expect.stringMatching(/[a-zA-Z0-9\/\+\=]{64}/g)
+    await keyManager.recoverSignatureKeyPair({
+        importAlias,
+        unwrapWith: { password },
+        recoverableKeyPair: recoverableSigKeyPairJson
     });
-    
-    const cleartext = 'Wigmans';
 
-    await keyManager.recoverKey({ alias, recoverableKey, password });
+    const { signature } = await keyManager.sign({
+        keyAlias: importAlias,
+        cleartext: 'Wigmans'
+    });
 
-    expect(
-        (await keyManager
-            .decrypt({ 
-                keyAlias: alias, 
-                encryptedMessage: (await keyManager.encrypt({
-                    keyAlias: alias,
-                    cleartext
-                })).encryptedMessage
-            })
-        ).cleartext
-    ).toBe(cleartext);
+    const { isValid } = await keyManager.verify({
+        keyAlias: importAlias,
+        cleartext: 'Wigmans',
+        signature
+    });
+
+    expect(isValid).true;
 });
 
 test('KeyManager#recoverKey', async ({ keyManager }) => {
-    const alias = 'Badonkey';
+    const importAlias = 'Badonkey';
     const password = 'Scrammi';
 
     await expect(() => keyManager.recoverKey({
-        alias,
-        password: 'Bramson',
+        importAlias,
+        unwrapWith: { 
+            password: 'Bramson' 
+        },
         recoverableKey: recoverableKeyJson
     })).rejects.toThrowError();
 
     await keyManager.recoverKey({
-        alias,
-        password,
+        importAlias,
+        unwrapWith: { password },
         recoverableKey: recoverableKeyJson
     });
 
@@ -325,9 +494,10 @@ test('KeyManager#recoverKey', async ({ keyManager }) => {
     expect(
         (await keyManager
             .decrypt({ 
-                keyAlias: alias, 
+                decryptWith: {
+                    keyAlias: importAlias },
                 encryptedMessage: (await keyManager.encrypt({
-                    keyAlias: alias,
+                    encryptWith: { keyAlias: importAlias },
                     cleartext
                 })).encryptedMessage
             })
@@ -335,111 +505,194 @@ test('KeyManager#recoverKey', async ({ keyManager }) => {
     ).toBe(cleartext);
 });
 
-test('KeyManager#reWrapKey', async ({ keyManager }) => {
-    const alias = 'Badonkey';
+test('KeyManager#rewrapKey', async ({ keyManager }) => {
+    const importAlias = 'Badonkey';
     const password = 'Scrammi';
 
-    await expect(() => keyManager.reWrapKey({
-        currentPassword: 'WrongPassword',
-        newPassword: 'Bimbo',
+    await expect(() => keyManager.rewrapKey({
+        unwrapWith: { password: 'WrongPassword' },
+        rewrapWith: { password: 'Bimbo' },
         recoverableKey: recoverableKeyJson
     })).rejects.toThrowError();
 
-    const { recoverableKey } = await keyManager.reWrapKey({
-        currentPassword: password,
-        newPassword: 'Bimbo',
+    const { recoverableKey } = await keyManager.rewrapKey({
+        unwrapWith: { password },
+        rewrapWith: { password: 'Bimbo' },
         recoverableKey: recoverableKeyJson
     });
 
     await expect(() => keyManager.recoverKey({
-        alias,
-        password,
+        importAlias,
+        unwrapWith: { password },
         recoverableKey
     })).rejects.toThrowError();
 
     await keyManager.recoverKey({
-        alias,
-        password: 'Bimbo',
+        importAlias,
+        unwrapWith: { password: 'Bimbo' },
+        recoverableKey
+    });
+});
+
+test('KeyManager#rewrapKey with key', async ({ keyManager }) => {
+    const importAlias = 'Badonkey';
+    const password = 'Scrammi';
+
+    const { recoverableKey: wrappingRecoverableKey } = await keyManager.generateRecoverableKey({ password });
+
+    await keyManager.recoverKey({ importAlias: 'WrappingKey', recoverableKey: wrappingRecoverableKey, unwrapWith: { password } });
+    
+    await expect(() => keyManager.rewrapKey({
+        unwrapWith: { password: 'WrongPassword' },
+        rewrapWith: { password: 'Bimbo' },
+        recoverableKey: recoverableKeyJson
+    })).rejects.toThrowError();
+
+    const { recoverableKey } = await keyManager.rewrapKey({
+        unwrapWith: { password },
+        rewrapWith: { keyAlias: 'WrappingKey' },
+        recoverableKey: recoverableKeyJson
+    });
+
+    await expect(() => keyManager.recoverKey({
+        importAlias,
+        unwrapWith: { password },
+        recoverableKey
+    })).rejects.toThrowError();
+
+    await keyManager.recoverKey({
+        importAlias,
+        unwrapWith: { keyAlias: 'WrappingKey' },
+        recoverableKey
+    });
+});
+
+test('KeyManager#rewrapKey with derived key and info', async ({ keyManager }) => {
+    const importAlias = 'Badonkey';
+    const password = 'Scrammi';
+
+    const { recoverableKeyPair: wrappingRecoverableKeyPair } = await keyManager.generateRecoverableAgreementKeyPair({ password });
+
+    await keyManager.recoverAgreementKeyPair({ importAlias: 'WrappingKey', recoverableKeyPair: wrappingRecoverableKeyPair, unwrapWith: { password } });
+    
+    await expect(() => keyManager.rewrapKey({
+        unwrapWith: { password: 'WrongPassword' },
+        rewrapWith: { password: 'Bimbo' },
+        recoverableKey: recoverableKeyJson
+    })).rejects.toThrowError();
+
+    const { recoverableKey } = await keyManager.rewrapKey({
+        unwrapWith: { password },
+        rewrapWith: { keyAlias: 'WrappingKey', publicKeyAlias: 'WrappingKey', info: 'word' },
+        recoverableKey: recoverableKeyJson
+    });
+
+    await expect(() => keyManager.recoverKey({
+        importAlias,
+        unwrapWith: { password },
+        recoverableKey
+    })).rejects.toThrowError();
+
+    await keyManager.recoverKey({
+        importAlias,
+        unwrapWith: { keyAlias: 'WrappingKey', publicKeyAlias: 'WrappingKey', info: 'word' },
+        recoverableKey
+    });
+});
+
+test('KeyManager#rewrapKey with derived key', async ({ keyManager }) => {
+    const importAlias = 'Badonkey';
+    const password = 'Scrammi';
+
+    const { recoverableKeyPair: wrappingRecoverableKeyPair } = await keyManager.generateRecoverableAgreementKeyPair({ password });
+
+    await keyManager.recoverAgreementKeyPair({ importAlias: 'WrappingKey', recoverableKeyPair: wrappingRecoverableKeyPair, unwrapWith: { password } });
+    
+    await expect(() => keyManager.rewrapKey({
+        unwrapWith: { password: 'WrongPassword' },
+        rewrapWith: { password: 'Bimbo' },
+        recoverableKey: recoverableKeyJson
+    })).rejects.toThrowError();
+
+    const { recoverableKey } = await keyManager.rewrapKey({
+        unwrapWith: { password },
+        rewrapWith: { keyAlias: 'WrappingKey', publicKeyAlias: 'WrappingKey' },
+        recoverableKey: recoverableKeyJson
+    });
+
+    await expect(() => keyManager.recoverKey({
+        importAlias,
+        unwrapWith: { password },
+        recoverableKey
+    })).rejects.toThrowError();
+
+    await keyManager.recoverKey({
+        importAlias,
+        unwrapWith: { keyAlias: 'WrappingKey', publicKeyAlias: 'WrappingKey' },
         recoverableKey
     });
 });
 
 test('KeyManager#reWrapSignatureKeyPair', async ({ keyManager }) => {
-    const alias = 'Badonkey';
+    const importAlias = 'Badonkey';
     const currentPassword = 'Scrammi';
     const newPassword = 'Bimbo';
 
-    await expect(() => keyManager.reWrapSignatureKeyPair({
-        currentPassword: 'WrongPassword',
-        newPassword,
+    await expect(() => keyManager.rewrapSignatureKeyPair({
+        unwrapWith: { password: 'WrongPassword' },
+        rewrapWith: { password: newPassword },
         recoverableKeyPair: recoverableSigKeyPairJson
     })).rejects.toThrowError();
 
-    const { recoverableKeyPair } = await keyManager.reWrapSignatureKeyPair({
-        currentPassword,
-        newPassword,
+    const { recoverableKeyPair } = await keyManager.rewrapSignatureKeyPair({
+        unwrapWith: { password: currentPassword },
+        rewrapWith: { password: newPassword },
         recoverableKeyPair: recoverableSigKeyPairJson
     });
 
     await expect(() => keyManager.recoverSignatureKeyPair({
-        alias,
-        password: currentPassword,
+        importAlias,
+        unwrapWith: { password: currentPassword },
         recoverableKeyPair
     })).rejects.toThrowError();
 
     await keyManager.recoverSignatureKeyPair({
-        alias,
-        password: newPassword,
+        importAlias,
+        unwrapWith: {
+            password: newPassword 
+        },
         recoverableKeyPair
     });
 });
 
 test('KeyManager#reWrapAgreementKeyPair', async ({ keyManager }) => {
-    const alias = 'Badonkey';
+    const importAlias = 'Badonkey';
     const currentPassword = 'Scrammi';
     const newPassword = 'Bimbo';
 
-    await expect(() => keyManager.reWrapAgreementKeyPair({
-        currentPassword: 'WrongPassword',
-        newPassword,
+    await expect(() => keyManager.rewrapAgreementKeyPair({
+        unwrapWith: { password: 'WrongPassword' },
+        rewrapWith: { password: newPassword },
         recoverableKeyPair: recoverableAgreeKeyPairJson
     })).rejects.toThrowError();
 
-    const { recoverableKeyPair } = await keyManager.reWrapAgreementKeyPair({
-        currentPassword,
-        newPassword,
+    const { recoverableKeyPair } = await keyManager.rewrapAgreementKeyPair({
+        unwrapWith: { password: currentPassword },
+        rewrapWith: { password: newPassword },
         recoverableKeyPair: recoverableAgreeKeyPairJson
     });
 
     await expect(() => keyManager.recoverAgreementKeyPair({
-        alias,
-        password: currentPassword,
+        importAlias,
+        unwrapWith: { password: currentPassword },
         recoverableKeyPair
     })).rejects.toThrowError();
 
     await keyManager.recoverAgreementKeyPair({
-        alias,
-        password: newPassword,
+        importAlias,
+        unwrapWith: {
+            password: newPassword 
+        },
         recoverableKeyPair
     });
-});
-
-test('KeyManager#checkAliasExists', async ({ keyManager }) => {
-    await expect(keyManager.checkAliasExists({ keyAlias: 'Donker' })).resolves.toEqual({ aliasExists: false });
-    await keyManager.generateKey({ keyAlias: 'Donker' });
-    await expect(keyManager.checkAliasExists({ keyAlias: 'Donker' })).resolves.toEqual({ aliasExists: true });
-    await expect(keyManager.checkAliasExists({ keyAlias: 'Stanko' })).resolves.toEqual({ aliasExists: false });
-});
-
-test('KeyManager#generateKey', async ({ keyManager }) => {
-    await keyManager.generateKey({ keyAlias: 'Donker' });
-
-    const cleartext = 'Banko';
-
-    await expect(
-        keyManager.decrypt({ 
-            keyAlias: 'Donker', 
-            encryptedMessage: (await keyManager.encrypt({ keyAlias: 'Donker', cleartext })).encryptedMessage 
-        })
-    ).resolves.toEqual({ cleartext })
 });

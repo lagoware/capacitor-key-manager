@@ -61,7 +61,7 @@ public class KeyManagerInstrumentedTest {
     public void generateRecoverableSignatureKeyPair() throws Exception {
         KeyManager keyManager = new KeyManager();
 
-        RecoverableKeyPair recoverableKeyPair = keyManager.generateRecoverableSignatureKeyPair("MyPassword");
+        RecoverableKeyPair recoverableKeyPair = keyManager.generateRecoverableSignatureKeyPair(new PasswordWrappingParams("MyPassword"));
 
         assertFalse(recoverableKeyPair.publicKey.contains("\n"));
         assertEquals(212, recoverableKeyPair.publicKey.length());
@@ -69,7 +69,7 @@ public class KeyManagerInstrumentedTest {
         assertEquals(344, recoverableKeyPair.privateKey.ciphertext.length());
         assertEquals(172, recoverableKeyPair.privateKey.salt.length());
 
-        keyManager.recoverSignatureKeyPair("MyTestKey", recoverableKeyPair, "MyPassword");
+        keyManager.recoverSignatureKeyPair("MyTestKey", recoverableKeyPair, new PasswordWrappingParams("MyPassword"));
 
         String sig = keyManager.sign("MyTestKey", "TestValue");
 
@@ -80,19 +80,19 @@ public class KeyManagerInstrumentedTest {
     @Test
     public void recoverSignatureKeyPair() throws Exception {
         KeyManager keyManager = new KeyManager();
-        keyManager.recoverSignatureKeyPair("DonkeyMan", testRecoverableSigKeyPair, "Scrammi");
+        keyManager.recoverSignatureKeyPair("DonkeyMan", testRecoverableSigKeyPair, new PasswordWrappingParams("Scrammi"));
     }
 
     @Test
     public void recoverAgreementKeyPair() throws Exception {
         KeyManager keyManager = new KeyManager();
-        keyManager.recoverAgreementKeyPair("DonkeyMan", testRecoverableAgreeKeyPair, "Scrammi");
+        keyManager.recoverAgreementKeyPair("DonkeyMan", testRecoverableAgreeKeyPair, new PasswordWrappingParams("Scrammi"));
     }
 
     @Test
     public void recoverKey() throws Exception {
         KeyManager keyManager = new KeyManager();
-        keyManager.recoverKey("DonkeyMan", testRecoverableKey, "Scrammi");
+        keyManager.recoverKey("DonkeyMan", testRecoverableKey, new PasswordWrappingParams("Scrammi"));
     }
 
     @Test
@@ -104,7 +104,7 @@ public class KeyManagerInstrumentedTest {
 
         String message = "HeyEverybody";
 
-        keyManager.importPublicSignatureKey("OtherPartyKey", Base64.encodeToString(keyPair.getPublic().getEncoded(), Base64.DEFAULT));
+        keyManager.importPublicSignatureKey("OtherPartyKey", Base64.encodeToString(keyPair.getPublic().getEncoded(), Base64.NO_WRAP));
 
         Signature s = Signature.getInstance("SHA256withECDSA");
         s.initSign(keyPair.getPrivate());
@@ -118,46 +118,50 @@ public class KeyManagerInstrumentedTest {
     @Test
     public void generateRecoverableAgreementKeyPair() throws Exception {
         KeyManager keyManager = new KeyManager();
-        RecoverableKeyPair recoverableKeyPair = keyManager.generateRecoverableAgreementKeyPair("MyPassword");
+        RecoverableKeyPair recoverableKeyPair = keyManager.generateRecoverableAgreementKeyPair(new PasswordWrappingParams("MyPassword"));
 
         assertEquals(212, recoverableKeyPair.publicKey.length());
         assertEquals(16, recoverableKeyPair.privateKey.iv.length());
         assertEquals(344, recoverableKeyPair.privateKey.ciphertext.length());
         assertEquals(172, recoverableKeyPair.privateKey.salt.length());
 
-        keyManager.recoverAgreementKeyPair("MyTestKey", recoverableKeyPair, "MyPassword");
+        keyManager.recoverAgreementKeyPair("MyTestKey", recoverableKeyPair, new PasswordWrappingParams("MyPassword"));
 
         KeyPairGenerator generator = KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_EC);
         generator.initialize(new ECGenParameterSpec("secp521r1"));
         KeyPair keyPair = generator.generateKeyPair();
 
-        keyManager.importPublicAgreementKey("OtherPartyKey", Base64.encodeToString(keyPair.getPublic().getEncoded(), Base64.DEFAULT));
+        keyManager.importPublicAgreementKey("OtherPartyKey", Base64.encodeToString(keyPair.getPublic().getEncoded(), Base64.NO_WRAP));
+
+        String testString = "Meatballs";
 
         assertEquals(
-            keyManager.decryptWithAgreedKey("MyTestKey", "OtherPartyKey",
-                keyManager.encryptWithAgreedKey("MyTestKey", "OtherPartyKey", "Meatballs")
+            keyManager.decrypt(
+                new KeyReference("MyTestKey", "OtherPartyKey"),
+                keyManager.encrypt(new KeyReference("MyTestKey", "OtherPartyKey"), testString)
             ),
-            "Meatballs"
+            testString
         );
         assertEquals(
-            keyManager.decryptWithAgreedKey("MyTestKey", "MyTestKey",
-                keyManager.encryptWithAgreedKey("MyTestKey", "MyTestKey", "Meatballs")
+            keyManager.decrypt(
+                new KeyReference("MyTestKey", "MyTestKey"),
+                keyManager.encrypt(new KeyReference("MyTestKey", "MyTestKey"), testString)
             ),
-            "Meatballs"
+            testString
         );
         assertEquals(
-            keyManager.decryptWithAgreedKey("MyTestKey", "OtherPartyKey",
-                keyManager.encryptWithAgreedKey("MyTestKey", "OtherPartyKey", "Meatballs", "Me and You"),
-                "Me and You"
+            keyManager.decrypt(
+                new KeyReference("MyTestKey", "OtherPartyKey", "Me and You"),
+                keyManager.encrypt(new KeyReference("MyTestKey", "OtherPartyKey", "Me and You"), testString)
             ),
-            "Meatballs"
+            testString
         );
         assertEquals(
-            keyManager.decryptWithAgreedKey("MyTestKey", "MyTestKey",
-                keyManager.encryptWithAgreedKey("MyTestKey", "MyTestKey", "Meatballs", "Me and You"),
-                "Me and You"
+            keyManager.decrypt(
+                new KeyReference("MyTestKey", "MyTestKey", "Me and You"),
+                keyManager.encrypt(new KeyReference("MyTestKey", "MyTestKey", "Me and You"), testString)
             ),
-            "Meatballs"
+            testString
         );
     }
 
@@ -165,46 +169,46 @@ public class KeyManagerInstrumentedTest {
     public void generateRecoverableKey() throws Exception {
         KeyManager keyManager = new KeyManager();
 
-        RecoverableKey recoverableKey = keyManager.generateRecoverableKey( "MyPassword");
+        RecoverableKey recoverableKey = keyManager.generateRecoverableKey(new PasswordWrappingParams("MyPassword"));
 
         assertEquals(64, recoverableKey.ciphertext.length());
         assertEquals(16, recoverableKey.iv.length());
         assertEquals(172, recoverableKey.salt.length());
 
-        keyManager.recoverKey("MyKey", recoverableKey, "MyPassword");
+        keyManager.recoverKey("MyKey", recoverableKey, new PasswordWrappingParams("MyPassword"));
 
-        SerializedEncryptedMessage encryptedMessage = keyManager.encrypt("MyKey", "MyMessage");
+        SerializedEncryptedMessage encryptedMessage = keyManager.encrypt(new KeyReference("MyKey"), "MyMessage");
         assertEquals(36, encryptedMessage.ciphertext.length());
         assertEquals(16, encryptedMessage.iv.length());
 
-        assertEquals(keyManager.decrypt("MyKey", encryptedMessage), "MyMessage");
+        assertEquals(keyManager.decrypt(new KeyReference("MyKey"), encryptedMessage), "MyMessage");
     }
 
     @Test
-    public void reWrapSignatureKeyPair() throws Exception {
+    public void rewrapSignatureKeyPair() throws Exception {
         KeyManager keyManager = new KeyManager();
 
-        RecoverableKeyPair recoverableKeyPair = keyManager.reWrapSignatureKeyPair(testRecoverableSigKeyPair, "Scrammi", "Whammy");
+        RecoverableKeyPair recoverableKeyPair = keyManager.rewrapSignatureKeyPair(testRecoverableSigKeyPair, new PasswordWrappingParams("Scrammi"), new PasswordWrappingParams("Whammy"));
 
-        keyManager.recoverSignatureKeyPair("MyKey", recoverableKeyPair, "Whammy");
+        keyManager.recoverSignatureKeyPair("MyKey", recoverableKeyPair, new PasswordWrappingParams("Whammy"));
     }
 
     @Test
-    public void reWrapAgreementKeyPair() throws Exception {
+    public void rewrapAgreementKeyPair() throws Exception {
         KeyManager keyManager = new KeyManager();
 
-        RecoverableKeyPair recoverableKeyPair = keyManager.reWrapAgreementKeyPair(testRecoverableAgreeKeyPair, "Scrammi", "Whammy");
+        RecoverableKeyPair recoverableKeyPair = keyManager.rewrapAgreementKeyPair(testRecoverableAgreeKeyPair, new PasswordWrappingParams("Scrammi"), new PasswordWrappingParams("Whammy"));
 
-        keyManager.recoverAgreementKeyPair("MyKey", recoverableKeyPair, "Whammy");
+        keyManager.recoverAgreementKeyPair("MyKey", recoverableKeyPair, new PasswordWrappingParams("Whammy"));
     }
 
     @Test
-    public void reWrapKey() throws Exception {
+    public void rewrapKey() throws Exception {
         KeyManager keyManager = new KeyManager();
 
-        RecoverableKey recoverableKey = keyManager.reWrapKey(testRecoverableKey, "Scrammi", "Whammy");
+        RecoverableKey recoverableKey = keyManager.rewrapKey(testRecoverableKey, new PasswordWrappingParams("Scrammi"), new PasswordWrappingParams("Whammy"));
 
-        keyManager.recoverKey("MyKey", recoverableKey, "Whammy");
+        keyManager.recoverKey("MyKey", recoverableKey, new PasswordWrappingParams("Whammy"));
     }
 
     @Test
@@ -212,11 +216,11 @@ public class KeyManagerInstrumentedTest {
         KeyManager keyManager = new KeyManager();
         keyManager.generateKey("Danis");
 
-        SerializedEncryptedMessage encryptedMessage = keyManager.encrypt("Danis", "MyMessage");
+        SerializedEncryptedMessage encryptedMessage = keyManager.encrypt(new KeyReference("Danis"), "MyMessage");
         assertEquals(36, encryptedMessage.ciphertext.length());
         assertEquals(16, encryptedMessage.iv.length());
 
-        assertEquals(keyManager.decrypt("Danis", encryptedMessage), "MyMessage");
+        assertEquals("MyMessage", keyManager.decrypt(new KeyReference("Danis"), encryptedMessage));
     }
 
 }
