@@ -61,7 +61,7 @@ public class KeyManagerInstrumentedTest {
     public void generateRecoverableSignatureKeyPair() throws Exception {
         KeyManager keyManager = new KeyManager();
 
-        RecoverableKeyPair recoverableKeyPair = keyManager.generateRecoverableSignatureKeyPair(new PasswordWrappingParams("MyPassword"));
+        RecoverableKeyPair recoverableKeyPair = keyManager.generateRecoverableSignatureKeyPair(new PasswordWrappingParams("MyPassword", null));
 
         assertFalse(recoverableKeyPair.publicKey.contains("\n"));
         assertEquals(212, recoverableKeyPair.publicKey.length());

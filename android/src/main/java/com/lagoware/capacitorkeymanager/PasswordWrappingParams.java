@@ -9,7 +9,6 @@ public class PasswordWrappingParams extends EncryptionKeySpec {
     public String password;
     public byte[] salt;
 
-
     public byte[] fillSalt() {
         if (this.salt == null) {
             byte[] salt = new byte[128];
@@ -36,7 +35,9 @@ public class PasswordWrappingParams extends EncryptionKeySpec {
 
     public PasswordWrappingParams(String password, String salt) {
         this.password = password;
-        this.salt = Base64.decode(salt, Base64.NO_WRAP);
+        this.salt = salt != null
+            ? Base64.decode(salt, Base64.NO_WRAP)
+            : null;
     }
 
 }

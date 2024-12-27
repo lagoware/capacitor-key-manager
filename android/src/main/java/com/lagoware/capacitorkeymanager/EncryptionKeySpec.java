@@ -12,7 +12,6 @@ import com.getcapacitor.JSObject;
 //export type PasswordParamsMaybeSalt = { password: string, salt?: string };
 //export type PasswordParamsWithSalt = { password: string, salt: string }
 public abstract class EncryptionKeySpec {
-
     static EncryptionKeySpec fromJson(JSObject json) {
         String password = json.getString("password", null);
 

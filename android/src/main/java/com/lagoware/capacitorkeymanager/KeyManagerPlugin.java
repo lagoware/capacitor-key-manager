@@ -34,61 +34,6 @@ import javax.crypto.NoSuchPaddingException;
 public class KeyManagerPlugin extends Plugin {
 
     private final KeyManager implementation = new KeyManager();
-
-//    private RecoverableKeyPair jsonToRecoverableKeyPair(JSObject json) {
-//        JSObject privateKey = json.getJSObject("privateKey");
-//
-//        assert privateKey != null;
-//
-//        return new RecoverableKeyPair(
-//            new RecoverableKey(
-//                privateKey.getString("ciphertext"),
-//                privateKey.getString("iv"),
-//                privateKey.getString("salt")
-//            ),
-//            json.getString("publicKey")
-//        );
-//    }
-//
-//    private JSObject recoverableKeyToJson(RecoverableKey key) {
-//        JSObject keyJs = serializedEncryptedMessageToJson(key);
-//
-//        keyJs.put("salt", key.salt);
-//
-//        return keyJs;
-//    }
-//
-//    private JSObject recoverableKeyPairToJson(RecoverableKeyPair keyPair) {
-//        JSObject keyPairJs = new JSObject();
-//
-//        keyPairJs.put("publicKey", keyPair.publicKey);
-//        keyPairJs.put("privateKey", recoverableKeyToJson(keyPair.privateKey));
-//
-//        return keyPairJs;
-//    }
-//
-//    private JSObject serializedEncryptedMessageToJson(SerializedEncryptedMessage message) {
-//
-//    }
-//
-//    private RecoverableKey jsonToRecoverableKey(JSObject json) {
-//        SerializedEncryptedMessage message = jsonToEncryptedMessage(json);
-//
-//        return new RecoverableKey(
-//            message.ciphertext,
-//            message.iv,
-//            json.getString("salt")
-//        );
-//    }
-
-//    private SerializedEncryptedMessage jsonToEncryptedMessage(JSObject json) {
-//        return new SerializedEncryptedMessage(
-//            json.getString("ciphertext"),
-//            json.getString("iv")
-//        );
-//    }
-
-    //    checkAliasExists(options: { keyAlias: string }): Promise<{ aliasExists: boolean }>;
     @PluginMethod
     public void checkAliasExists(PluginCall call) throws CertificateException, KeyStoreException, IOException, NoSuchAlgorithmException {
         String keyAlias = call.getString("keyAlias");
@@ -101,8 +46,6 @@ public class KeyManagerPlugin extends Plugin {
 
         call.resolve(ret);
     }
-
-    //    generateKey(options: { keyAlias: string }): Promise<void>;
     @RequiresApi(api = Build.VERSION_CODES.M)
     @PluginMethod
     public void generateKey(PluginCall call) throws InvalidAlgorithmParameterException, NoSuchAlgorithmException, NoSuchProviderException {
