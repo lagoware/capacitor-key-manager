@@ -35,7 +35,7 @@ public class KeyManagerPlugin extends Plugin {
 
     private final KeyManager implementation = new KeyManager();
     @PluginMethod
-    public void checkAliasExists(PluginCall call) throws CertificateException, KeyStoreException, IOException, NoSuchAlgorithmException {
+    public void checkAliasExists(PluginCall call) throws CertificateException, KeyStoreException, IOException, NoSuchAlgorithmException, NoSuchProviderException {
         String keyAlias = call.getString("keyAlias");
 
         JSObject ret = new JSObject();
@@ -140,7 +140,7 @@ public class KeyManagerPlugin extends Plugin {
 
     @RequiresApi(api = Build.VERSION_CODES.S)
     @PluginMethod
-    public void importPublicSignatureKey(PluginCall call) throws InvalidAlgorithmParameterException, CertificateException, KeyStoreException, IOException, NoSuchAlgorithmException, InvalidKeySpecException, OperatorCreationException {
+    public void importPublicSignatureKey(PluginCall call) throws InvalidAlgorithmParameterException, CertificateException, KeyStoreException, IOException, NoSuchAlgorithmException, InvalidKeySpecException, OperatorCreationException, NoSuchProviderException {
         String alias = call.getString("alias");
         String publicKey = call.getString("publicKey");
 
@@ -151,7 +151,7 @@ public class KeyManagerPlugin extends Plugin {
 
     @RequiresApi(api = Build.VERSION_CODES.S)
     @PluginMethod
-    public void importPublicAgreementKey(PluginCall call) throws InvalidAlgorithmParameterException, CertificateException, KeyStoreException, IOException, NoSuchAlgorithmException, InvalidKeySpecException, OperatorCreationException {
+    public void importPublicAgreementKey(PluginCall call) throws InvalidAlgorithmParameterException, CertificateException, KeyStoreException, IOException, NoSuchAlgorithmException, InvalidKeySpecException, OperatorCreationException, NoSuchProviderException {
         String alias = call.getString("alias");
         String publicKey = call.getString("publicKey");
 
@@ -221,7 +221,7 @@ public class KeyManagerPlugin extends Plugin {
     }
 
     @PluginMethod
-    public void sign(PluginCall call) throws UnrecoverableEntryException, CertificateException, KeyStoreException, NoSuchAlgorithmException, IOException, SignatureException, InvalidKeyException {
+    public void sign(PluginCall call) throws UnrecoverableEntryException, CertificateException, KeyStoreException, NoSuchAlgorithmException, IOException, SignatureException, InvalidKeyException, NoSuchProviderException {
         String keyAlias = call.getString("keyAlias");
         String cleartext = call.getString("cleartext");
 
@@ -235,7 +235,7 @@ public class KeyManagerPlugin extends Plugin {
     }
 
     @PluginMethod
-    public void verify(PluginCall call) throws UnrecoverableEntryException, CertificateException, KeyStoreException, IOException, NoSuchAlgorithmException, SignatureException, InvalidKeyException {
+    public void verify(PluginCall call) throws UnrecoverableEntryException, CertificateException, KeyStoreException, IOException, NoSuchAlgorithmException, SignatureException, InvalidKeyException, NoSuchProviderException {
         String keyAlias = call.getString("keyAlias");
         String cleartext = call.getString("cleartext");
         String signature = call.getString("signature");

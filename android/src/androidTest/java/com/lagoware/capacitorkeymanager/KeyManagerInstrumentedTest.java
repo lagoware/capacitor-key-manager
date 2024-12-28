@@ -2,7 +2,10 @@ package com.lagoware.capacitorkeymanager;
 
 import static org.junit.Assert.*;
 
+import android.security.keystore.KeyGenParameterSpec;
+import android.security.keystore.KeyInfo;
 import android.security.keystore.KeyProperties;
+import android.security.keystore.KeyProtection;
 import android.util.Base64;
 
 import androidx.test.ext.junit.runners.AndroidJUnit4;
@@ -12,18 +15,29 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import java.io.IOException;
+import java.security.GeneralSecurityException;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
+import java.security.KeyFactory;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
+import java.security.KeyStore;
 import java.security.KeyStoreException;
 import java.security.NoSuchAlgorithmException;
+import java.security.NoSuchProviderException;
+import java.security.PrivateKey;
 import java.security.Signature;
 import java.security.SignatureException;
 import java.security.UnrecoverableEntryException;
+import java.security.cert.Certificate;
 import java.security.cert.CertificateException;
 import java.security.spec.ECGenParameterSpec;
 import java.security.spec.InvalidKeySpecException;
+import java.security.spec.X509EncodedKeySpec;
+
+import javax.crypto.KeyAgreement;
+import javax.crypto.SecretKey;
+import javax.crypto.SecretKeyFactory;
 
 /**
  * Instrumented test, which will execute on an Android device.
@@ -81,22 +95,78 @@ public class KeyManagerInstrumentedTest {
     public void recoverSignatureKeyPair() throws Exception {
         KeyManager keyManager = new KeyManager();
         keyManager.recoverSignatureKeyPair("DonkeyMan", testRecoverableSigKeyPair, new PasswordWrappingParams("Scrammi"));
+
+        KeyStore ks = KeyStore.getInstance("AndroidKeyStore");
+        ks.load(null);
+        KeyStore.Entry entry = ks.getEntry("DonkeyMan", null);
+
+        KeyStore.PrivateKeyEntry privateKeyEntry = (KeyStore.PrivateKeyEntry) entry;
+
+        PrivateKey key = privateKeyEntry.getPrivateKey();
+
+        KeyFactory factory = KeyFactory.getInstance(key.getAlgorithm(), "AndroidKeyStore");
+        KeyInfo keyInfo;
+        keyInfo = factory.getKeySpec(key, KeyInfo.class);
+
+        int securityLevel = keyInfo.getSecurityLevel();
+
+        assertTrue(
+            securityLevel == KeyProperties.SECURITY_LEVEL_TRUSTED_ENVIRONMENT
+            || securityLevel == KeyProperties.SECURITY_LEVEL_STRONGBOX
+        );
     }
 
     @Test
     public void recoverAgreementKeyPair() throws Exception {
         KeyManager keyManager = new KeyManager();
         keyManager.recoverAgreementKeyPair("DonkeyMan", testRecoverableAgreeKeyPair, new PasswordWrappingParams("Scrammi"));
+
+        KeyStore ks = KeyStore.getInstance("AndroidKeyStore");
+        ks.load(null);
+        KeyStore.Entry entry = ks.getEntry("DonkeyMan", null);
+
+        KeyStore.PrivateKeyEntry privateKeyEntry = (KeyStore.PrivateKeyEntry) entry;
+
+        PrivateKey key = privateKeyEntry.getPrivateKey();
+
+        KeyFactory factory = KeyFactory.getInstance(key.getAlgorithm(), "AndroidKeyStore");
+        KeyInfo keyInfo;
+        keyInfo = factory.getKeySpec(key, KeyInfo.class);
+
+        int securityLevel = keyInfo.getSecurityLevel();
+
+        assertEquals(securityLevel, KeyProperties.SECURITY_LEVEL_SOFTWARE);
+//        assertTrue(
+//            securityLevel == KeyProperties.SECURITY_LEVEL_TRUSTED_ENVIRONMENT
+//            || securityLevel == KeyProperties.SECURITY_LEVEL_STRONGBOX
+//        );
     }
 
     @Test
     public void recoverKey() throws Exception {
         KeyManager keyManager = new KeyManager();
         keyManager.recoverKey("DonkeyMan", testRecoverableKey, new PasswordWrappingParams("Scrammi"));
+        KeyStore ks = KeyStore.getInstance("AndroidKeyStore");
+        ks.load(null);
+        KeyStore.Entry entry = ks.getEntry("DonkeyMan", null);
+
+        KeyStore.SecretKeyEntry secretKeyEntry = (KeyStore.SecretKeyEntry) entry;
+
+        SecretKey key = secretKeyEntry.getSecretKey();
+
+        SecretKeyFactory factory = SecretKeyFactory.getInstance(key.getAlgorithm(), "AndroidKeyStore");
+        KeyInfo keyInfo = (KeyInfo) factory.getKeySpec(key, KeyInfo.class);
+
+        int securityLevel = keyInfo.getSecurityLevel();
+
+        assertTrue(
+            securityLevel == KeyProperties.SECURITY_LEVEL_TRUSTED_ENVIRONMENT
+            || securityLevel == KeyProperties.SECURITY_LEVEL_STRONGBOX
+        );
     }
 
     @Test
-    public void importPublicSignatureKey() throws NoSuchAlgorithmException, InvalidAlgorithmParameterException, CertificateException, KeyStoreException, IOException, InvalidKeySpecException, OperatorCreationException, InvalidKeyException, SignatureException, UnrecoverableEntryException {
+    public void importPublicSignatureKey() throws NoSuchAlgorithmException, InvalidAlgorithmParameterException, CertificateException, KeyStoreException, IOException, InvalidKeySpecException, OperatorCreationException, InvalidKeyException, SignatureException, UnrecoverableEntryException, NoSuchProviderException {
         KeyManager keyManager = new KeyManager();
         KeyPairGenerator generator = KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_EC);
         generator.initialize(new ECGenParameterSpec("secp521r1"));
@@ -221,6 +291,77 @@ public class KeyManagerInstrumentedTest {
         assertEquals(16, encryptedMessage.iv.length());
 
         assertEquals("MyMessage", keyManager.decrypt(new KeyReference("Danis"), encryptedMessage));
+
+        KeyStore ks = KeyStore.getInstance("AndroidKeyStore");
+        ks.load(null);
+        KeyStore.Entry entry = ks.getEntry("Danis", null);
+
+        KeyStore.SecretKeyEntry secretKeyEntry = (KeyStore.SecretKeyEntry) entry;
+
+        SecretKey key = secretKeyEntry.getSecretKey();
+
+        SecretKeyFactory factory = SecretKeyFactory.getInstance(key.getAlgorithm(), "AndroidKeyStore");
+        KeyInfo keyInfo = (KeyInfo) factory.getKeySpec(key, KeyInfo.class);
+
+        int securityLevel = keyInfo.getSecurityLevel();
+
+        assertTrue(
+            securityLevel == KeyProperties.SECURITY_LEVEL_TRUSTED_ENVIRONMENT
+            || securityLevel == KeyProperties.SECURITY_LEVEL_STRONGBOX
+        );
     }
+
+    @Test
+    public void generateKeyFromAgreementKey() throws GeneralSecurityException, IOException, OperatorCreationException {
+        KeyManager keyManager = new KeyManager();
+        RecoverableKeyPair recoverableKeyPair = keyManager.generateRecoverableAgreementKeyPair(new PasswordWrappingParams("MyPassword", null));
+        keyManager.recoverAgreementKeyPair("MyTestKey", recoverableKeyPair, new PasswordWrappingParams("MyPassword"));
+
+        KeyReference wrappingKeyRef = new KeyReference(
+            "MyTestKey",
+            "MyTestKey",
+            "drinker"
+        );
+        RecoverableKey recoverableKey = keyManager.generateRecoverableKey(
+            wrappingKeyRef
+        );
+
+        assertEquals(64, recoverableKey.ciphertext.length());
+        assertEquals(16, recoverableKey.iv.length());
+
+        keyManager.recoverKey("MyNewKey", recoverableKey, wrappingKeyRef);
+
+        SerializedEncryptedMessage encryptedMessage = keyManager.encrypt(new KeyReference("MyNewKey"), "Meatballs");
+
+        assertEquals("Meatballs", keyManager.decrypt(new KeyReference("MyNewKey"), encryptedMessage));
+    }
+
+//    @Test
+//    public void ecKeyAndroid12() throws NoSuchAlgorithmException, NoSuchProviderException, InvalidAlgorithmParameterException, InvalidKeyException, KeyStoreException, CertificateException, IOException, OperatorCreationException, UnrecoverableEntryException {
+//        KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance(
+//                KeyProperties.KEY_ALGORITHM_EC, "AndroidKeyStore");
+//        keyPairGenerator.initialize(
+//                new KeyGenParameterSpec.Builder(
+//                        "eckeypair",
+////                        KeyProperties.PURPOSE_ENCRYPT | KeyProperties.PURPOSE_DECRYPT
+////                        KeyProperties.PURPOSE_ATTEST_KEY
+//                        KeyProperties.PURPOSE_AGREE_KEY
+//                )
+//                        .setAlgorithmParameterSpec(new ECGenParameterSpec("secp521r1"))
+//                        .build());
+//        KeyPair myKeyPair = keyPairGenerator.generateKeyPair();
+//
+//        // Exchange public keys with server. A new ephemeral key MUST be used for every message.
+////        PublicKey serverEphemeralPublicKey; // Ephemeral key received from server.
+//
+//        // Create a shared secret based on our private key and the other party's public key.
+//        KeyAgreement keyAgreement = KeyAgreement.getInstance("ECDH", "AndroidKeyStore");
+//        keyAgreement.init(myKeyPair.getPrivate());
+//        keyAgreement.doPhase(myKeyPair.getPublic(), true);
+//        byte[] sharedSecret = keyAgreement.generateSecret();
+//
+//        assertEquals(sharedSecret.length, 66);
+//
+//    }
 
 }

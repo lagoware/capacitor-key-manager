@@ -4,6 +4,7 @@ import android.os.Build;
 import android.security.keystore.KeyGenParameterSpec;
 import android.security.keystore.KeyProperties;
 import android.security.keystore.KeyProtection;
+import android.security.keystore.StrongBoxUnavailableException;
 import android.util.Base64;
 import com.google.crypto.tink.subtle.Hkdf;
 
@@ -104,6 +105,7 @@ public class KeyManager {
         throw new Error("Unrecognized encryption key spec");
     }
 
+    @RequiresApi(api = Build.VERSION_CODES.M)
     private RecoverableKeyPair generateRecoverableEcKeyPair(EncryptionKeySpec params) throws GeneralSecurityException, IOException {
         byte[] salt = params instanceof PasswordWrappingParams passwordParams
             ? passwordParams.fillSalt()
@@ -125,6 +127,7 @@ public class KeyManager {
         );
     }
 
+    @RequiresApi(api = Build.VERSION_CODES.M)
     public RecoverableKey generateRecoverableKey(EncryptionKeySpec params) throws GeneralSecurityException, IOException {
         byte[] salt = params instanceof PasswordWrappingParams passwordParams
             ? passwordParams.fillSalt()
@@ -139,16 +142,35 @@ public class KeyManager {
         );
     }
 
+    @RequiresApi(api = Build.VERSION_CODES.M)
     public RecoverableKeyPair generateRecoverableSignatureKeyPair(EncryptionKeySpec params) throws GeneralSecurityException, IOException {
         return generateRecoverableEcKeyPair(params);
     }
 
+    @RequiresApi(api = Build.VERSION_CODES.M)
     public RecoverableKeyPair generateRecoverableAgreementKeyPair(EncryptionKeySpec params) throws GeneralSecurityException, IOException {
         return generateRecoverableEcKeyPair(params);
     }
 
     @RequiresApi(api = Build.VERSION_CODES.M)
     public void generateKey(String keyAlias) throws NoSuchAlgorithmException, InvalidAlgorithmParameterException, NoSuchProviderException {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            try {
+                KeyGenerator keyGenerator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore");
+                keyGenerator.init(
+                    new KeyGenParameterSpec.Builder(keyAlias, KeyProperties.PURPOSE_ENCRYPT | KeyProperties.PURPOSE_DECRYPT)
+                        .setDigests(KeyProperties.DIGEST_SHA256)
+                        .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                        .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                        .setIsStrongBoxBacked(true)
+                        .build()
+                );
+                keyGenerator.generateKey();
+                return;
+            } catch (StrongBoxUnavailableException error) {
+
+            }
+        }
         KeyGenerator keyGenerator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore");
         keyGenerator.init(
             new KeyGenParameterSpec.Builder(keyAlias, KeyProperties.PURPOSE_ENCRYPT | KeyProperties.PURPOSE_DECRYPT)
@@ -157,11 +179,10 @@ public class KeyManager {
                 .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
                 .build()
         );
-
         keyGenerator.generateKey();
     }
 
-    public Boolean checkAliasExists(String keyAlias) throws CertificateException, KeyStoreException, IOException, NoSuchAlgorithmException {
+    public Boolean checkAliasExists(String keyAlias) throws CertificateException, KeyStoreException, IOException, NoSuchAlgorithmException, NoSuchProviderException {
         KeyStore ks = loadKeyStore();
 
         return ks.containsAlias(keyAlias);
@@ -252,21 +273,40 @@ public class KeyManager {
             Base64.decode(recoverableKeyPair.privateKey.iv, Base64.NO_WRAP),
             encryptionKey
         );
+
         KeyFactory kf = KeyFactory.getInstance(KeyProperties.KEY_ALGORITHM_EC);
+
+        KeyStore.PrivateKeyEntry privateKeyEntry = new KeyStore.PrivateKeyEntry(
+            privateKey,
+            new Certificate[] {
+                generateSelfSignedCertificate(
+                    privateKey,
+                    kf.generatePublic(
+                        new X509EncodedKeySpec(Base64.decode(recoverableKeyPair.publicKey, Base64.NO_WRAP))
+                    )
+                )
+            }
+        );
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            try {
+                ks.setEntry(
+                    alias,
+                    privateKeyEntry,
+                    new KeyProtection.Builder(purposes)
+                        .setIsStrongBoxBacked(true)
+                        .setDigests(KeyProperties.DIGEST_SHA256)
+                        .build()
+                );
+                return;
+            } catch (KeyStoreException | StrongBoxUnavailableException error) {
+
+            }
+        }
 
         ks.setEntry(
             alias,
-            new KeyStore.PrivateKeyEntry(
-                privateKey,
-                new Certificate[] {
-                    generateSelfSignedCertificate(
-                        privateKey,
-                        kf.generatePublic(
-                            new X509EncodedKeySpec(Base64.decode(recoverableKeyPair.publicKey, Base64.NO_WRAP))
-                        )
-                    )
-                }
-            ),
+            privateKeyEntry,
             new KeyProtection.Builder(purposes)
                 .setDigests(KeyProperties.DIGEST_SHA256)
                 .build()
@@ -291,16 +331,35 @@ public class KeyManager {
             passwordParams.fillSalt(recoverableKey.salt);
         }
         SecretKey encryptionKey = resolveEncryptionKey(spec);
+        KeyStore.SecretKeyEntry secretKeyEntry = new KeyStore.SecretKeyEntry(
+            unwrapSecretKey(
+                Base64.decode(recoverableKey.ciphertext, Base64.NO_WRAP),
+                Base64.decode(recoverableKey.iv, Base64.NO_WRAP),
+                encryptionKey
+            )
+        );
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            try {
+                ks.setEntry(
+                    alias,
+                    secretKeyEntry,
+                    new KeyProtection.Builder(KeyProperties.PURPOSE_ENCRYPT | KeyProperties.PURPOSE_DECRYPT)
+                        .setDigests(KeyProperties.DIGEST_SHA256)
+                        .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                        .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                        .setIsStrongBoxBacked(true)
+                        .build()
+                );
+                return;
+            } catch (KeyStoreException | StrongBoxUnavailableException error) {
+
+            }
+        }
 
         ks.setEntry(
             alias,
-            new KeyStore.SecretKeyEntry(
-                unwrapSecretKey(
-                    Base64.decode(recoverableKey.ciphertext, Base64.NO_WRAP),
-                    Base64.decode(recoverableKey.iv, Base64.NO_WRAP),
-                    encryptionKey
-                )
-            ),
+            secretKeyEntry,
             new KeyProtection.Builder(KeyProperties.PURPOSE_ENCRYPT | KeyProperties.PURPOSE_DECRYPT)
                 .setDigests(KeyProperties.DIGEST_SHA256)
                 .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
@@ -309,13 +368,13 @@ public class KeyManager {
         );
     }
 
-    @RequiresApi(api = Build.VERSION_CODES.S)
-    public void importPublicSignatureKey(String alias, String publicKey) throws InvalidAlgorithmParameterException, CertificateException, KeyStoreException, IOException, NoSuchAlgorithmException, InvalidKeySpecException, OperatorCreationException {
+    @RequiresApi(api = Build.VERSION_CODES.M)
+    public void importPublicSignatureKey(String alias, String publicKey) throws InvalidAlgorithmParameterException, CertificateException, KeyStoreException, IOException, NoSuchAlgorithmException, InvalidKeySpecException, OperatorCreationException, NoSuchProviderException {
         importPublicKey(alias, publicKey, KeyProperties.PURPOSE_VERIFY);
     }
 
     @RequiresApi(api = Build.VERSION_CODES.S)
-    public void importPublicAgreementKey(String alias, String publicKey) throws InvalidAlgorithmParameterException, CertificateException, KeyStoreException, IOException, NoSuchAlgorithmException, InvalidKeySpecException, OperatorCreationException {
+    public void importPublicAgreementKey(String alias, String publicKey) throws InvalidAlgorithmParameterException, CertificateException, KeyStoreException, IOException, NoSuchAlgorithmException, InvalidKeySpecException, OperatorCreationException, NoSuchProviderException {
         importPublicKey(alias, publicKey, KeyProperties.PURPOSE_AGREE_KEY);
     }
 
@@ -376,7 +435,7 @@ public class KeyManager {
         return cipher.doFinal(encryptedData);
     }
 
-    public String sign(String keyAlias, String cleartext) throws KeyStoreException, UnrecoverableEntryException, NoSuchAlgorithmException, CertificateException, IOException, InvalidKeyException, SignatureException {
+    public String sign(String keyAlias, String cleartext) throws KeyStoreException, UnrecoverableEntryException, NoSuchAlgorithmException, CertificateException, IOException, InvalidKeyException, SignatureException, NoSuchProviderException {
         Signature s = Signature.getInstance("SHA256withECDSA");
         s.initSign(loadPrivateKey(keyAlias));
         s.update(cleartext.getBytes());
@@ -385,7 +444,7 @@ public class KeyManager {
         return Base64.encodeToString(signature, Base64.NO_PADDING + Base64.NO_WRAP);
     }
 
-    public Boolean verify(String keyAlias, String cleartext, String signature) throws KeyStoreException, CertificateException, IOException, NoSuchAlgorithmException, UnrecoverableEntryException, SignatureException, InvalidKeyException {
+    public Boolean verify(String keyAlias, String cleartext, String signature) throws KeyStoreException, CertificateException, IOException, NoSuchAlgorithmException, UnrecoverableEntryException, SignatureException, InvalidKeyException, NoSuchProviderException {
         KeyStore ks = loadKeyStore();
 
         KeyStore.Entry entry = ks.getEntry(keyAlias, null);
@@ -407,7 +466,7 @@ public class KeyManager {
         return s.verify(signatureData);
     }
 
-    private SecretKey loadSecretKey(String keyAlias) throws KeyStoreException, CertificateException, IOException, NoSuchAlgorithmException, UnrecoverableEntryException {
+    private SecretKey loadSecretKey(String keyAlias) throws KeyStoreException, CertificateException, IOException, NoSuchAlgorithmException, UnrecoverableEntryException, NoSuchProviderException {
         return loadSecretKey(keyAlias, loadKeyStore());
     }
 
@@ -431,7 +490,7 @@ public class KeyManager {
         return new KeyPair(entry.getCertificate().getPublicKey(), entry.getPrivateKey());
     }
 
-    private PrivateKey loadPrivateKey(String keyAlias) throws KeyStoreException, CertificateException, IOException, NoSuchAlgorithmException, UnrecoverableEntryException {
+    private PrivateKey loadPrivateKey(String keyAlias) throws KeyStoreException, CertificateException, IOException, NoSuchAlgorithmException, UnrecoverableEntryException, NoSuchProviderException {
         return loadPrivateKey(keyAlias, loadKeyStore());
     }
 
@@ -443,22 +502,20 @@ public class KeyManager {
         return ((KeyStore.PrivateKeyEntry) publicKeyEntry).getCertificate().getPublicKey();
     }
 
-    private KeyStore loadKeyStore() throws KeyStoreException, CertificateException, IOException, NoSuchAlgorithmException {
+    private KeyStore loadKeyStore() throws KeyStoreException, CertificateException, IOException, NoSuchAlgorithmException, NoSuchProviderException {
         KeyStore ks = KeyStore.getInstance("AndroidKeyStore");
         ks.load(null);
         return ks;
     }
 
     @RequiresApi(api = Build.VERSION_CODES.M)
-    private void importPublicKey(String alias, String publicKey, int purposes) throws CertificateException, KeyStoreException, IOException, NoSuchAlgorithmException, InvalidAlgorithmParameterException, InvalidKeySpecException, OperatorCreationException {
+    private void importPublicKey(String alias, String publicKey, int purposes) throws CertificateException, KeyStoreException, IOException, NoSuchAlgorithmException, InvalidAlgorithmParameterException, InvalidKeySpecException, OperatorCreationException, NoSuchProviderException {
         KeyPairGenerator kpg = KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_EC);
         kpg.initialize(new ECGenParameterSpec("secp521r1"));
         KeyPair keyPair = kpg.generateKeyPair();
         PrivateKey privateKey = keyPair.getPrivate();
 
-        KeyStore ks = KeyStore.getInstance("AndroidKeyStore");
-        ks.load(null);
-
+        KeyStore ks = loadKeyStore();
         ks.setEntry(
             alias,
             new KeyStore.TrustedCertificateEntry(
@@ -500,7 +557,7 @@ public class KeyManager {
         return (SecretKey) unwrapKey(encryptedData, iv, wrappingKey, KeyProperties.KEY_ALGORITHM_AES, Cipher.SECRET_KEY);
     }
 
-    private byte[] deriveAgreedKey(String privateKeyAlias, String publicKeyAlias) throws CertificateException, KeyStoreException, IOException, NoSuchAlgorithmException, UnrecoverableEntryException, InvalidKeyException {
+    private byte[] deriveAgreedKey(String privateKeyAlias, String publicKeyAlias) throws CertificateException, KeyStoreException, IOException, NoSuchAlgorithmException, UnrecoverableEntryException, InvalidKeyException, NoSuchProviderException {
         KeyStore ks = loadKeyStore();
         KeyPair keyPair = loadKeyPair(privateKeyAlias, ks);
 
@@ -510,7 +567,6 @@ public class KeyManager {
         if (!privateKeyAlias.equals(publicKeyAlias)) {
             publicKey = loadPublicKey(publicKeyAlias, ks);
         }
-
         KeyAgreement keyAgreement = KeyAgreement.getInstance("ECDH", ks.getProvider());
         keyAgreement.init(privateKey);
         keyAgreement.doPhase(publicKey, true);
@@ -532,7 +588,7 @@ public class KeyManager {
         );
     }
 
-    private X509Certificate generateSelfSignedCertificate(PrivateKey privateKey, PublicKey publicKey) throws IOException, OperatorCreationException, CertificateException {
+    X509Certificate generateSelfSignedCertificate(PrivateKey privateKey, PublicKey publicKey) throws IOException, OperatorCreationException, CertificateException {
         AlgorithmIdentifier sigAlgId = new DefaultSignatureAlgorithmIdentifierFinder().find("SHA512WITHPLAIN-ECDSA");//""SHA512WITHECDSA");
         AlgorithmIdentifier digAlgId = new DefaultDigestAlgorithmIdentifierFinder().find(sigAlgId);
         AsymmetricKeyParameter keyParam = PrivateKeyFactory.createKey(privateKey.getEncoded());

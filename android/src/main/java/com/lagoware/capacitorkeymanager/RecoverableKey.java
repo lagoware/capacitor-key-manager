@@ -29,7 +29,9 @@ public class RecoverableKey extends SerializedEncryptedMessage {
 
     public RecoverableKey(EncryptedMessage message, byte[] salt) {
         super(message.data, message.iv);
-        this.salt = Base64.encodeToString(salt, Base64.NO_WRAP);
+        this.salt = salt != null
+            ? Base64.encodeToString(salt, Base64.NO_WRAP)
+            : null;
     }
 
     public RecoverableKey(EncryptedMessage message) {

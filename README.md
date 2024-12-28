@@ -12,6 +12,12 @@ Utilize and store encryption and signing keys.
 
 Keys are stored in the [Android Key Store](https://developer.android.com/privacy-and-security/keystore).
 
+Please note the following caveats:
+
+    - Agreement key operations are currently only supported on Android 13+
+    - The highest level of security key storage (StrongBox) is attempted, falling back to TEE and / or software-based encryption.
+    - Even for devices that do support hardware-based key storage, agreement keys are typically not supported. This means agreement keys will almost always be stored using software-based encryption.
+
 ### Web
 
 Keys are stored as non-extractable [Web Crypto](https://developer.mozilla.org/en-US/docs/Web/API/Web_Crypto_API) keys in an [IndexedDB](https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API) database. Please note that your keys may be at risk of eviction by the browser unless your app successfully requests [persistent storage](https://web.dev/articles/persistent-storage).
