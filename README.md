@@ -14,9 +14,9 @@ Keys are stored in the [Android Key Store](https://developer.android.com/privacy
 
 Please note the following caveats:
 
-    - Agreement key operations are currently only supported on Android 13+
-    - The highest level of security key storage (StrongBox) is attempted, falling back to TEE and / or software-based encryption.
-    - Even for devices that do support hardware-based key storage, agreement keys are typically not supported. This means agreement keys will almost always be stored using software-based encryption.
+- Agreement key operations are currently only supported on Android 13+
+- The highest level of security key storage (StrongBox) is attempted, falling back to TEE and / or software-based encryption.
+- Even for devices that do support hardware-based key storage, agreement keys are typically not supported. This means agreement keys will almost always be stored using software-based encryption.
 
 ### Web
 
