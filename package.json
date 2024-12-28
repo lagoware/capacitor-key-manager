@@ -1,6 +1,6 @@
 {
   "name": "@lagoware/capacitor-key-manager",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Utilize and store encryption and signing keys",
   "main": "dist/plugin.cjs.js",
   "module": "dist/esm/index.js",
