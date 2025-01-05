@@ -35,67 +35,82 @@ public class KeyManagerPlugin extends Plugin {
 
     private final KeyManager implementation = new KeyManager();
     @PluginMethod
-    public void checkAliasExists(PluginCall call) throws CertificateException, KeyStoreException, IOException, NoSuchAlgorithmException, NoSuchProviderException {
+    public void checkAliasExists(PluginCall call) {
         String keyAlias = call.getString("keyAlias");
 
         JSObject ret = new JSObject();
 
-        Boolean aliasExists = implementation.checkAliasExists(keyAlias);
-
-        ret.put("aliasExists", aliasExists);
-
-        call.resolve(ret);
+        try {
+            Boolean aliasExists = implementation.checkAliasExists(keyAlias);
+            ret.put("aliasExists", aliasExists);
+            call.resolve(ret);
+        } catch (CertificateException | KeyStoreException | IOException |
+                 NoSuchAlgorithmException | NoSuchProviderException error) {
+            call.reject(error.getMessage());
+        }
     }
     @RequiresApi(api = Build.VERSION_CODES.M)
     @PluginMethod
-    public void generateKey(PluginCall call) throws InvalidAlgorithmParameterException, NoSuchAlgorithmException, NoSuchProviderException {
+    public void generateKey(PluginCall call) {
         String keyAlias = call.getString("keyAlias");
 
-        implementation.generateKey(keyAlias);
-
-        call.resolve();
+        try {
+            implementation.generateKey(keyAlias);
+            call.resolve();
+        } catch (NoSuchAlgorithmException | InvalidAlgorithmParameterException |
+                 NoSuchProviderException error) {
+            call.reject(error.getMessage());
+        }
     }
 
     @RequiresApi(api = Build.VERSION_CODES.M)
     @PluginMethod
-    public void generateRecoverableSignatureKeyPair(PluginCall call) throws GeneralSecurityException, IOException, OperatorCreationException {
+    public void generateRecoverableSignatureKeyPair(PluginCall call) {
         EncryptionKeySpec spec = EncryptionKeySpec.fromJson(call.getData());
 
         JSObject ret = new JSObject();
 
-        ret.put("recoverableKeyPair", implementation.generateRecoverableSignatureKeyPair(spec).toJson());
-
-        call.resolve(ret);
+        try {
+            ret.put("recoverableKeyPair", implementation.generateRecoverableSignatureKeyPair(spec).toJson());
+            call.resolve(ret);
+        } catch (GeneralSecurityException | IOException error) {
+            call.reject(error.getMessage());
+        }
     }
 
     @RequiresApi(api = Build.VERSION_CODES.S)
     @PluginMethod
-    public void generateRecoverableAgreementKeyPair(PluginCall call) throws GeneralSecurityException, IOException, OperatorCreationException {
+    public void generateRecoverableAgreementKeyPair(PluginCall call) {
         EncryptionKeySpec spec = EncryptionKeySpec.fromJson(call.getData());
 
         JSObject ret = new JSObject();
 
-        ret.put("recoverableKeyPair", implementation.generateRecoverableAgreementKeyPair(spec).toJson());
-
-        call.resolve(ret);
+        try {
+            ret.put("recoverableKeyPair", implementation.generateRecoverableAgreementKeyPair(spec).toJson());
+            call.resolve(ret);
+        } catch (GeneralSecurityException | IOException error) {
+            call.reject(error.getMessage());
+        }
     }
 
     @RequiresApi(api = Build.VERSION_CODES.M)
     @PluginMethod
-    public void generateRecoverableKey(PluginCall call) throws GeneralSecurityException, IOException {
+    public void generateRecoverableKey(PluginCall call) {
         EncryptionKeySpec spec = EncryptionKeySpec.fromJson(call.getData());
 
         JSObject ret = new JSObject();
 
-        ret.put("recoverableKey", implementation.generateRecoverableKey(spec).toJson());
-
-        call.resolve(ret);
+        try {
+            ret.put("recoverableKey", implementation.generateRecoverableKey(spec).toJson());
+            call.resolve(ret);
+        } catch (GeneralSecurityException | IOException error) {
+            call.reject(error.getMessage());
+        }
     }
 
-    //    rewrapSignatureKeyPair(options: { currentPassword: string, newPassword: string, newSalt?: string, recoverableKeyPair: RecoverableKeyPair }): Promise<{ recoverableKeyPair: RecoverableKeyPair }>;
     @RequiresApi(api = Build.VERSION_CODES.M)
     @PluginMethod
-    public void rewrapSignatureKeyPair(PluginCall call) throws GeneralSecurityException, IOException {
+    public void rewrapSignatureKeyPair(PluginCall call) {
         EncryptionKeySpec unwrapWith = EncryptionKeySpec.fromJson(call.getObject("unwrapWith"));
         EncryptionKeySpec rewrapWith = EncryptionKeySpec.fromJson(call.getObject("rewrapWith"));
 
@@ -103,14 +118,17 @@ public class KeyManagerPlugin extends Plugin {
 
         JSObject ret = new JSObject();
 
-        ret.put("recoverableKeyPair", implementation.rewrapSignatureKeyPair(recoverableKeyPair, unwrapWith, rewrapWith).toJson());
-
-        call.resolve(ret);
+        try {
+            ret.put("recoverableKeyPair", implementation.rewrapSignatureKeyPair(recoverableKeyPair, unwrapWith, rewrapWith).toJson());
+            call.resolve(ret);
+        } catch (GeneralSecurityException | IOException error) {
+            call.reject(error.getMessage());
+        }
     }
 
     @RequiresApi(api = Build.VERSION_CODES.M)
     @PluginMethod
-    public void rewrapAgreementKeyPair(PluginCall call) throws GeneralSecurityException, IOException {
+    public void rewrapAgreementKeyPair(PluginCall call) {
         EncryptionKeySpec unwrapWith = EncryptionKeySpec.fromJson(call.getObject("unwrapWith"));
         EncryptionKeySpec rewrapWith = EncryptionKeySpec.fromJson(call.getObject("rewrapWith"));
 
@@ -118,110 +136,140 @@ public class KeyManagerPlugin extends Plugin {
 
         JSObject ret = new JSObject();
 
-        ret.put("recoverableKeyPair", implementation.rewrapAgreementKeyPair(recoverableKeyPair, unwrapWith, rewrapWith).toJson());
-
-        call.resolve(ret);
+        try {
+            ret.put("recoverableKeyPair", implementation.rewrapAgreementKeyPair(recoverableKeyPair, unwrapWith, rewrapWith).toJson());
+            call.resolve(ret);
+        } catch (GeneralSecurityException | IOException error) {
+            call.reject(error.getMessage());
+        }
     }
 
     @RequiresApi(api = Build.VERSION_CODES.M)
     @PluginMethod
-    public void rewrapKey(PluginCall call) throws GeneralSecurityException, IOException {
+    public void rewrapKey(PluginCall call) {
         EncryptionKeySpec unwrapWith = EncryptionKeySpec.fromJson(call.getObject("unwrapWith"));
         EncryptionKeySpec rewrapWith = EncryptionKeySpec.fromJson(call.getObject("rewrapWith"));
 
         RecoverableKey recoverableKey = new RecoverableKey(call.getObject("recoverableKey"));
 
         JSObject ret = new JSObject();
-
-        ret.put("recoverableKey", implementation.rewrapKey(recoverableKey, unwrapWith, rewrapWith).toJson());
-
-        call.resolve(ret);
+        try {
+            ret.put("recoverableKey", implementation.rewrapKey(recoverableKey, unwrapWith, rewrapWith).toJson());
+            call.resolve(ret);
+        } catch (GeneralSecurityException | IOException error) {
+            call.reject(error.getMessage());
+        }
     }
 
     @RequiresApi(api = Build.VERSION_CODES.S)
     @PluginMethod
-    public void importPublicSignatureKey(PluginCall call) throws InvalidAlgorithmParameterException, CertificateException, KeyStoreException, IOException, NoSuchAlgorithmException, InvalidKeySpecException, OperatorCreationException, NoSuchProviderException {
+    public void importPublicSignatureKey(PluginCall call) {
         String alias = call.getString("alias");
         String publicKey = call.getString("publicKey");
 
-        implementation.importPublicSignatureKey(alias, publicKey);
-
-        call.resolve();
+        try {
+            implementation.importPublicSignatureKey(alias, publicKey);
+            call.resolve();
+        } catch (InvalidAlgorithmParameterException | CertificateException |
+                 KeyStoreException | IOException | NoSuchAlgorithmException |
+                 InvalidKeySpecException | OperatorCreationException | NoSuchProviderException error) {
+            call.reject(error.getMessage());
+        }
     }
 
     @RequiresApi(api = Build.VERSION_CODES.S)
     @PluginMethod
-    public void importPublicAgreementKey(PluginCall call) throws InvalidAlgorithmParameterException, CertificateException, KeyStoreException, IOException, NoSuchAlgorithmException, InvalidKeySpecException, OperatorCreationException, NoSuchProviderException {
+    public void importPublicAgreementKey(PluginCall call) {
         String alias = call.getString("alias");
         String publicKey = call.getString("publicKey");
 
-        implementation.importPublicAgreementKey(alias, publicKey);
-
-        call.resolve();
+        try {
+            implementation.importPublicAgreementKey(alias, publicKey);
+            call.resolve();
+        } catch (InvalidAlgorithmParameterException | CertificateException |
+                 KeyStoreException | IOException | NoSuchAlgorithmException |
+                 InvalidKeySpecException | OperatorCreationException | NoSuchProviderException error) {
+            call.reject(error.getMessage());
+        }
     }
 
     @RequiresApi(api = Build.VERSION_CODES.M)
     @PluginMethod
-    public void recoverKey(PluginCall call) throws GeneralSecurityException, IOException {
+    public void recoverKey(PluginCall call) {
         String alias = call.getString("importAlias");
         EncryptionKeySpec unwrapWith = EncryptionKeySpec.fromJson(call.getObject("unwrapWith"));
         RecoverableKey recoverableKey = new RecoverableKey(call.getObject("recoverableKey"));
 
-        implementation.recoverKey(alias, recoverableKey, unwrapWith);
-
-        call.resolve();
+        try {
+            implementation.recoverKey(alias, recoverableKey, unwrapWith);
+            call.resolve();
+        } catch (GeneralSecurityException | IOException error) {
+            call.reject(error.getMessage());
+        }
     }
 
     @RequiresApi(api = Build.VERSION_CODES.M)
     @PluginMethod
-    public void recoverSignatureKeyPair(PluginCall call) throws GeneralSecurityException, IOException, OperatorCreationException {
+    public void recoverSignatureKeyPair(PluginCall call) {
         String alias = call.getString("importAlias");
         EncryptionKeySpec unwrapWith = EncryptionKeySpec.fromJson(call.getObject("unwrapWith"));
         RecoverableKeyPair recoverableKeyPair = new RecoverableKeyPair(call.getObject("recoverableKeyPair"));
 
-        implementation.recoverSignatureKeyPair(alias, recoverableKeyPair, unwrapWith);
-
-        call.resolve();
+        try {
+            implementation.recoverSignatureKeyPair(alias, recoverableKeyPair, unwrapWith);
+            call.resolve();
+        } catch (GeneralSecurityException | IOException | OperatorCreationException error) {
+            call.reject(error.getMessage());
+        }
     }
 
     @RequiresApi(api = Build.VERSION_CODES.S)
     @PluginMethod
-    public void recoverAgreementKeyPair(PluginCall call) throws GeneralSecurityException, IOException, OperatorCreationException {
+    public void recoverAgreementKeyPair(PluginCall call) {
         String alias = call.getString("importAlias");
         EncryptionKeySpec unwrapWith = EncryptionKeySpec.fromJson(call.getObject("unwrapWith"));
         RecoverableKeyPair recoverableKeyPair = new RecoverableKeyPair(call.getObject("recoverableKeyPair"));
 
-        implementation.recoverAgreementKeyPair(alias, recoverableKeyPair, unwrapWith);
-
-        call.resolve();
+        try {
+            implementation.recoverAgreementKeyPair(alias, recoverableKeyPair, unwrapWith);
+            call.resolve();
+        } catch (GeneralSecurityException | IOException | OperatorCreationException error) {
+            call.reject(error.getMessage());
+        }
     }
 
     @PluginMethod
-    public void encrypt(PluginCall call) throws GeneralSecurityException, IOException {
+    public void encrypt(PluginCall call) {
         EncryptionKeySpec encryptWith = EncryptionKeySpec.fromJson(call.getObject("encryptWith"));
         String cleartext = call.getString("cleartext");
 
         JSObject ret = new JSObject();
 
-        ret.put("encryptedMessage", implementation.encrypt(encryptWith, cleartext).toJson());
-
-        call.resolve(ret);
+        try {
+            ret.put("encryptedMessage", implementation.encrypt(encryptWith, cleartext).toJson());
+            call.resolve(ret);
+        } catch (GeneralSecurityException | IOException error) {
+            call.reject(error.getMessage());
+        }
     }
 
     @PluginMethod
-    public void decrypt(PluginCall call) throws GeneralSecurityException, IOException {
+    public void decrypt(PluginCall call) {
         EncryptionKeySpec decryptWith = EncryptionKeySpec.fromJson(call.getObject("decryptWith"));
         SerializedEncryptedMessage encryptedMessage = new SerializedEncryptedMessage(call.getObject("encryptedMessage"));
 
         JSObject ret = new JSObject();
 
-        ret.put("cleartext", implementation.decrypt(decryptWith, encryptedMessage));
-
-        call.resolve(ret);
+        try {
+            ret.put("cleartext", implementation.decrypt(decryptWith, encryptedMessage));
+            call.resolve(ret);
+        } catch (GeneralSecurityException | IOException error) {
+            call.reject(error.getMessage());
+        }
     }
 
     @PluginMethod
-    public void sign(PluginCall call) throws UnrecoverableEntryException, CertificateException, KeyStoreException, NoSuchAlgorithmException, IOException, SignatureException, InvalidKeyException, NoSuchProviderException {
+    public void sign(PluginCall call) {
         String keyAlias = call.getString("keyAlias");
         String cleartext = call.getString("cleartext");
 
@@ -229,21 +277,31 @@ public class KeyManagerPlugin extends Plugin {
 
         JSObject ret = new JSObject();
 
-        ret.put("signature", implementation.sign(keyAlias, cleartext));
-
-        call.resolve(ret);
+        try {
+            ret.put("signature", implementation.sign(keyAlias, cleartext));
+            call.resolve(ret);
+        } catch (KeyStoreException | UnrecoverableEntryException |
+                 NoSuchAlgorithmException | CertificateException | IOException |
+                 InvalidKeyException | SignatureException | NoSuchProviderException error) {
+            call.reject(error.getMessage());
+        }
     }
 
     @PluginMethod
-    public void verify(PluginCall call) throws UnrecoverableEntryException, CertificateException, KeyStoreException, IOException, NoSuchAlgorithmException, SignatureException, InvalidKeyException, NoSuchProviderException {
+    public void verify(PluginCall call) {
         String keyAlias = call.getString("keyAlias");
         String cleartext = call.getString("cleartext");
         String signature = call.getString("signature");
 
         JSObject ret = new JSObject();
 
-        ret.put("isValid", implementation.verify(keyAlias, cleartext, signature));
-
-        call.resolve(ret);
+        try {
+            ret.put("isValid", implementation.verify(keyAlias, cleartext, signature));
+            call.resolve(ret);
+        } catch (KeyStoreException | CertificateException | IOException |
+                 NoSuchAlgorithmException | UnrecoverableEntryException | SignatureException |
+                 InvalidKeyException | NoSuchProviderException error) {
+            call.reject(error.getMessage());
+        }
     }
 }
