@@ -403,14 +403,14 @@ public class KeyManager {
         );
     }
 
-    private EncryptedMessage encrypt(String cleartext, SecretKey encryptionKey) throws NoSuchPaddingException, NoSuchAlgorithmException, IllegalBlockSizeException, BadPaddingException, InvalidAlgorithmParameterException, InvalidKeyException {
+    private EncryptedMessage encrypt(String cleartext, SecretKey encryptionKey) throws NoSuchPaddingException, NoSuchAlgorithmException, IllegalBlockSizeException, BadPaddingException, InvalidKeyException {
         return encrypt(
             cleartext.getBytes(StandardCharsets.UTF_8),
             encryptionKey
         );
     }
 
-    private EncryptedMessage encrypt(byte[] unencryptedData, SecretKey encryptionKey) throws NoSuchPaddingException, NoSuchAlgorithmException, IllegalBlockSizeException, BadPaddingException, InvalidAlgorithmParameterException, InvalidKeyException {
+    private EncryptedMessage encrypt(byte[] unencryptedData, SecretKey encryptionKey) throws NoSuchPaddingException, NoSuchAlgorithmException, IllegalBlockSizeException, BadPaddingException, InvalidKeyException {
         Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
         cipher.init(Cipher.ENCRYPT_MODE, encryptionKey);
         byte[] iv = cipher.getIV();
@@ -444,20 +444,18 @@ public class KeyManager {
         return Base64.encodeToString(signature, Base64.NO_PADDING + Base64.NO_WRAP);
     }
 
-    public Boolean verify(String keyAlias, String cleartext, String signature) throws KeyStoreException, CertificateException, IOException, NoSuchAlgorithmException, UnrecoverableEntryException, SignatureException, InvalidKeyException, NoSuchProviderException {
+    public Boolean verify(String keyAlias, String cleartext, String signature) throws KeyStoreException, CertificateException, IOException, NoSuchAlgorithmException, UnrecoverableEntryException, SignatureException, InvalidKeyException, NoSuchProviderException, ClassCastException {
         KeyStore ks = loadKeyStore();
 
         KeyStore.Entry entry = ks.getEntry(keyAlias, null);
 
-        byte[] signatureData = Base64.decode(signature, Base64.NO_PADDING + Base64.NO_WRAP);//Base64.decode(signature, Base64.NO_PADDING + Base64.NO_WRAP);
+        byte[] signatureData = Base64.decode(signature, Base64.NO_PADDING + Base64.NO_WRAP);
 
         Signature s = Signature.getInstance("SHA256withECDSA");
 
         if ((entry instanceof KeyStore.TrustedCertificateEntry)) {
             s.initVerify(((KeyStore.TrustedCertificateEntry) entry).getTrustedCertificate().getPublicKey());
         } else {
-            assert entry instanceof KeyStore.PrivateKeyEntry;
-
             s.initVerify(((KeyStore.PrivateKeyEntry) entry).getCertificate().getPublicKey());
         }
 
@@ -466,19 +464,17 @@ public class KeyManager {
         return s.verify(signatureData);
     }
 
-    private SecretKey loadSecretKey(String keyAlias) throws KeyStoreException, CertificateException, IOException, NoSuchAlgorithmException, UnrecoverableEntryException, NoSuchProviderException {
+    private SecretKey loadSecretKey(String keyAlias) throws CertificateException, KeyStoreException, IOException, NoSuchAlgorithmException, UnrecoverableEntryException {
         return loadSecretKey(keyAlias, loadKeyStore());
     }
 
     private SecretKey loadSecretKey(String keyAlias, KeyStore keyStore) throws UnrecoverableEntryException, KeyStoreException, NoSuchAlgorithmException {
         KeyStore.Entry entry = keyStore.getEntry(keyAlias, null);
 
-        assert entry instanceof KeyStore.SecretKeyEntry;
-
         return ((KeyStore.SecretKeyEntry) entry).getSecretKey();
     }
 
-    private PrivateKey loadPrivateKey(String keyAlias, KeyStore keyStore) throws KeyStoreException, CertificateException, IOException, NoSuchAlgorithmException, UnrecoverableEntryException {
+    private PrivateKey loadPrivateKey(String keyAlias, KeyStore keyStore) throws KeyStoreException, NoSuchAlgorithmException, UnrecoverableEntryException {
         KeyStore.Entry entry = keyStore.getEntry(keyAlias, null);
 
         return ((KeyStore.PrivateKeyEntry) entry).getPrivateKey();
@@ -490,7 +486,7 @@ public class KeyManager {
         return new KeyPair(entry.getCertificate().getPublicKey(), entry.getPrivateKey());
     }
 
-    private PrivateKey loadPrivateKey(String keyAlias) throws KeyStoreException, CertificateException, IOException, NoSuchAlgorithmException, UnrecoverableEntryException, NoSuchProviderException {
+    private PrivateKey loadPrivateKey(String keyAlias) throws KeyStoreException, CertificateException, IOException, NoSuchAlgorithmException, UnrecoverableEntryException {
         return loadPrivateKey(keyAlias, loadKeyStore());
     }
 
@@ -502,14 +498,14 @@ public class KeyManager {
         return ((KeyStore.PrivateKeyEntry) publicKeyEntry).getCertificate().getPublicKey();
     }
 
-    private KeyStore loadKeyStore() throws KeyStoreException, CertificateException, IOException, NoSuchAlgorithmException, NoSuchProviderException {
+    private KeyStore loadKeyStore() throws KeyStoreException, CertificateException, IOException, NoSuchAlgorithmException {
         KeyStore ks = KeyStore.getInstance("AndroidKeyStore");
         ks.load(null);
         return ks;
     }
 
     @RequiresApi(api = Build.VERSION_CODES.M)
-    private void importPublicKey(String alias, String publicKey, int purposes) throws CertificateException, KeyStoreException, IOException, NoSuchAlgorithmException, InvalidAlgorithmParameterException, InvalidKeySpecException, OperatorCreationException, NoSuchProviderException {
+    private void importPublicKey(String alias, String publicKey, int purposes) throws CertificateException, KeyStoreException, IOException, NoSuchAlgorithmException, InvalidAlgorithmParameterException, InvalidKeySpecException, OperatorCreationException {
         KeyPairGenerator kpg = KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_EC);
         kpg.initialize(new ECGenParameterSpec("secp521r1"));
         KeyPair keyPair = kpg.generateKeyPair();
@@ -532,7 +528,7 @@ public class KeyManager {
         );
     }
 
-    private EncryptedMessage wrapKey(Key keyToWrap, SecretKey wrappingKey) throws NoSuchPaddingException, NoSuchAlgorithmException, IllegalBlockSizeException, BadPaddingException, InvalidAlgorithmParameterException, InvalidKeyException {
+    private EncryptedMessage wrapKey(Key keyToWrap, SecretKey wrappingKey) throws NoSuchPaddingException, NoSuchAlgorithmException, IllegalBlockSizeException, InvalidKeyException {
         Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
         cipher.init(Cipher.WRAP_MODE, wrappingKey);
         byte[] iv = cipher.getIV();
@@ -540,7 +536,7 @@ public class KeyManager {
     }
 
     @RequiresApi(api = Build.VERSION_CODES.M)
-    private Key unwrapKey(byte[] encryptedData, byte[] iv, SecretKey wrappingKey, String algorithm, int keyType) throws NoSuchPaddingException, NoSuchAlgorithmException, IllegalBlockSizeException, BadPaddingException, InvalidAlgorithmParameterException, InvalidKeyException {
+    private Key unwrapKey(byte[] encryptedData, byte[] iv, SecretKey wrappingKey, String algorithm, int keyType) throws NoSuchPaddingException, NoSuchAlgorithmException, InvalidAlgorithmParameterException, InvalidKeyException {
         Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
         GCMParameterSpec spec = new GCMParameterSpec(128, iv);
         cipher.init(Cipher.UNWRAP_MODE, wrappingKey, spec);
@@ -548,16 +544,16 @@ public class KeyManager {
     }
 
     @RequiresApi(api = Build.VERSION_CODES.M)
-    private PrivateKey unwrapPrivateKey(byte[] encryptedData, byte[] iv, SecretKey wrappingKey) throws InvalidAlgorithmParameterException, NoSuchPaddingException, IllegalBlockSizeException, NoSuchAlgorithmException, BadPaddingException, InvalidKeyException {
+    private PrivateKey unwrapPrivateKey(byte[] encryptedData, byte[] iv, SecretKey wrappingKey) throws InvalidAlgorithmParameterException, NoSuchPaddingException, NoSuchAlgorithmException, InvalidKeyException {
         return (PrivateKey) unwrapKey(encryptedData, iv, wrappingKey, KeyProperties.KEY_ALGORITHM_EC, Cipher.PRIVATE_KEY);
     }
 
     @RequiresApi(api = Build.VERSION_CODES.M)
-    private SecretKey unwrapSecretKey(byte[] encryptedData, byte[] iv, SecretKey wrappingKey) throws InvalidAlgorithmParameterException, NoSuchPaddingException, IllegalBlockSizeException, NoSuchAlgorithmException, BadPaddingException, InvalidKeyException {
+    private SecretKey unwrapSecretKey(byte[] encryptedData, byte[] iv, SecretKey wrappingKey) throws InvalidAlgorithmParameterException, NoSuchPaddingException, NoSuchAlgorithmException, InvalidKeyException {
         return (SecretKey) unwrapKey(encryptedData, iv, wrappingKey, KeyProperties.KEY_ALGORITHM_AES, Cipher.SECRET_KEY);
     }
 
-    private byte[] deriveAgreedKey(String privateKeyAlias, String publicKeyAlias) throws CertificateException, KeyStoreException, IOException, NoSuchAlgorithmException, UnrecoverableEntryException, InvalidKeyException, NoSuchProviderException {
+    private byte[] deriveAgreedKey(String privateKeyAlias, String publicKeyAlias) throws CertificateException, KeyStoreException, IOException, NoSuchAlgorithmException, UnrecoverableEntryException, InvalidKeyException {
         KeyStore ks = loadKeyStore();
         KeyPair keyPair = loadKeyPair(privateKeyAlias, ks);
 

@@ -44,7 +44,7 @@ public class KeyManagerPlugin extends Plugin {
             Boolean aliasExists = implementation.checkAliasExists(keyAlias);
             ret.put("aliasExists", aliasExists);
             call.resolve(ret);
-        } catch (CertificateException | KeyStoreException | IOException |
+        } catch (RuntimeException | CertificateException | KeyStoreException | IOException |
                  NoSuchAlgorithmException | NoSuchProviderException error) {
             call.reject(error.getMessage());
         }
@@ -57,7 +57,7 @@ public class KeyManagerPlugin extends Plugin {
         try {
             implementation.generateKey(keyAlias);
             call.resolve();
-        } catch (NoSuchAlgorithmException | InvalidAlgorithmParameterException |
+        } catch (RuntimeException | NoSuchAlgorithmException | InvalidAlgorithmParameterException |
                  NoSuchProviderException error) {
             call.reject(error.getMessage());
         }
@@ -73,7 +73,7 @@ public class KeyManagerPlugin extends Plugin {
         try {
             ret.put("recoverableKeyPair", implementation.generateRecoverableSignatureKeyPair(spec).toJson());
             call.resolve(ret);
-        } catch (GeneralSecurityException | IOException error) {
+        } catch (RuntimeException | GeneralSecurityException | IOException error) {
             call.reject(error.getMessage());
         }
     }
@@ -88,7 +88,7 @@ public class KeyManagerPlugin extends Plugin {
         try {
             ret.put("recoverableKeyPair", implementation.generateRecoverableAgreementKeyPair(spec).toJson());
             call.resolve(ret);
-        } catch (GeneralSecurityException | IOException error) {
+        } catch (RuntimeException | GeneralSecurityException | IOException error) {
             call.reject(error.getMessage());
         }
     }
@@ -103,7 +103,7 @@ public class KeyManagerPlugin extends Plugin {
         try {
             ret.put("recoverableKey", implementation.generateRecoverableKey(spec).toJson());
             call.resolve(ret);
-        } catch (GeneralSecurityException | IOException error) {
+        } catch (RuntimeException | GeneralSecurityException | IOException error) {
             call.reject(error.getMessage());
         }
     }
@@ -121,7 +121,7 @@ public class KeyManagerPlugin extends Plugin {
         try {
             ret.put("recoverableKeyPair", implementation.rewrapSignatureKeyPair(recoverableKeyPair, unwrapWith, rewrapWith).toJson());
             call.resolve(ret);
-        } catch (GeneralSecurityException | IOException error) {
+        } catch (RuntimeException | GeneralSecurityException | IOException error) {
             call.reject(error.getMessage());
         }
     }
@@ -139,7 +139,7 @@ public class KeyManagerPlugin extends Plugin {
         try {
             ret.put("recoverableKeyPair", implementation.rewrapAgreementKeyPair(recoverableKeyPair, unwrapWith, rewrapWith).toJson());
             call.resolve(ret);
-        } catch (GeneralSecurityException | IOException error) {
+        } catch (RuntimeException | GeneralSecurityException | IOException error) {
             call.reject(error.getMessage());
         }
     }
@@ -156,7 +156,7 @@ public class KeyManagerPlugin extends Plugin {
         try {
             ret.put("recoverableKey", implementation.rewrapKey(recoverableKey, unwrapWith, rewrapWith).toJson());
             call.resolve(ret);
-        } catch (GeneralSecurityException | IOException error) {
+        } catch (RuntimeException | GeneralSecurityException | IOException error) {
             call.reject(error.getMessage());
         }
     }
@@ -170,7 +170,7 @@ public class KeyManagerPlugin extends Plugin {
         try {
             implementation.importPublicSignatureKey(alias, publicKey);
             call.resolve();
-        } catch (InvalidAlgorithmParameterException | CertificateException |
+        } catch (RuntimeException | InvalidAlgorithmParameterException | CertificateException |
                  KeyStoreException | IOException | NoSuchAlgorithmException |
                  InvalidKeySpecException | OperatorCreationException | NoSuchProviderException error) {
             call.reject(error.getMessage());
@@ -186,7 +186,7 @@ public class KeyManagerPlugin extends Plugin {
         try {
             implementation.importPublicAgreementKey(alias, publicKey);
             call.resolve();
-        } catch (InvalidAlgorithmParameterException | CertificateException |
+        } catch (RuntimeException | InvalidAlgorithmParameterException | CertificateException |
                  KeyStoreException | IOException | NoSuchAlgorithmException |
                  InvalidKeySpecException | OperatorCreationException | NoSuchProviderException error) {
             call.reject(error.getMessage());
@@ -203,7 +203,7 @@ public class KeyManagerPlugin extends Plugin {
         try {
             implementation.recoverKey(alias, recoverableKey, unwrapWith);
             call.resolve();
-        } catch (GeneralSecurityException | IOException error) {
+        } catch (RuntimeException | GeneralSecurityException | IOException error) {
             call.reject(error.getMessage());
         }
     }
@@ -218,7 +218,7 @@ public class KeyManagerPlugin extends Plugin {
         try {
             implementation.recoverSignatureKeyPair(alias, recoverableKeyPair, unwrapWith);
             call.resolve();
-        } catch (GeneralSecurityException | IOException | OperatorCreationException error) {
+        } catch (RuntimeException | GeneralSecurityException | IOException | OperatorCreationException error) {
             call.reject(error.getMessage());
         }
     }
@@ -233,7 +233,7 @@ public class KeyManagerPlugin extends Plugin {
         try {
             implementation.recoverAgreementKeyPair(alias, recoverableKeyPair, unwrapWith);
             call.resolve();
-        } catch (GeneralSecurityException | IOException | OperatorCreationException error) {
+        } catch (RuntimeException | GeneralSecurityException | IOException | OperatorCreationException error) {
             call.reject(error.getMessage());
         }
     }
@@ -248,7 +248,7 @@ public class KeyManagerPlugin extends Plugin {
         try {
             ret.put("encryptedMessage", implementation.encrypt(encryptWith, cleartext).toJson());
             call.resolve(ret);
-        } catch (GeneralSecurityException | IOException error) {
+        } catch (RuntimeException | GeneralSecurityException | IOException error) {
             call.reject(error.getMessage());
         }
     }
@@ -263,7 +263,7 @@ public class KeyManagerPlugin extends Plugin {
         try {
             ret.put("cleartext", implementation.decrypt(decryptWith, encryptedMessage));
             call.resolve(ret);
-        } catch (GeneralSecurityException | IOException error) {
+        } catch (RuntimeException | GeneralSecurityException | IOException error) {
             call.reject(error.getMessage());
         }
     }
@@ -280,7 +280,7 @@ public class KeyManagerPlugin extends Plugin {
         try {
             ret.put("signature", implementation.sign(keyAlias, cleartext));
             call.resolve(ret);
-        } catch (KeyStoreException | UnrecoverableEntryException |
+        } catch (RuntimeException | KeyStoreException | UnrecoverableEntryException |
                  NoSuchAlgorithmException | CertificateException | IOException |
                  InvalidKeyException | SignatureException | NoSuchProviderException error) {
             call.reject(error.getMessage());
@@ -298,9 +298,9 @@ public class KeyManagerPlugin extends Plugin {
         try {
             ret.put("isValid", implementation.verify(keyAlias, cleartext, signature));
             call.resolve(ret);
-        } catch (KeyStoreException | CertificateException | IOException |
+        } catch (RuntimeException | KeyStoreException | CertificateException | IOException |
                  NoSuchAlgorithmException | UnrecoverableEntryException | SignatureException |
-                 InvalidKeyException | NoSuchProviderException error) {
+                 InvalidKeyException | NoSuchProviderException | AssertionError error) {
             call.reject(error.getMessage());
         }
     }
