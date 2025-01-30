@@ -1,6 +1,6 @@
 import webCrypto from 'tiny-webcrypto';
 
-import type { IKeyStore, RecoverableKeyPair, RecoverableKey, KeyManagerWebPlugin, EncryptedMessage, KeyUnwrapParams, KeyWrapParams, KeyReference, DerivedKeyReference, SymmetricKeyReference, PasswordEncryptedRecoverableKey, KeyUnwrapParamsWithSalt, PasswordParamsMaybeSalt, PasswordEncryptedRecoverableKeyPair } from './definitions';
+import type { IKeyStore, RecoverableKeyPair, RecoverableKey, KeyManagerPlugin, EncryptedMessage, KeyUnwrapParams, KeyWrapParams, KeyReference, DerivedKeyReference, SymmetricKeyReference, PasswordEncryptedRecoverableKey, KeyUnwrapParamsWithSalt, PasswordParamsMaybeSalt, PasswordEncryptedRecoverableKeyPair } from './definitions';
 
 export function base64Decode(str: string): ArrayBuffer {
     return Uint8Array.from(atob(str), c => c.charCodeAt(0)).buffer;
@@ -26,10 +26,10 @@ function isPasswordParamsWithSalt(val: any): val is ({ password: string, salt: s
     return !!(val)?.password && !!(val)?.salt;
 }
 
-export class KeyManager implements KeyManagerWebPlugin {
+export class KeyManager implements KeyManagerPlugin {
     private keyStore : IKeyStore|null = null;
 
-    async useKeyStore(keyStore: IKeyStore): Promise<void> {
+    useKeyStore(keyStore: IKeyStore): void {
         this.keyStore = keyStore;
     }
 

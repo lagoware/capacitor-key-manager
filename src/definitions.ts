@@ -28,10 +28,6 @@ export type KeyWrapParams = PasswordParamsMaybeSalt | KeyReference;
 export type KeyUnwrapParams = PasswordParams | KeyReference;
 export type KeyUnwrapParamsWithSalt = PasswordParamsWithSalt | KeyReference;
 
-export interface KeyManagerWebPlugin extends KeyManagerPlugin {
-  useKeyStore(keyStore: IKeyStore): Promise<void>;
-}
-
 export interface KeyManagerPlugin {
 
   /**
