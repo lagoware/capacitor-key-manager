@@ -7,14 +7,20 @@ import android.security.keystore.KeyInfo;
 import android.security.keystore.KeyProperties;
 import android.security.keystore.KeyProtection;
 import android.util.Base64;
+import android.util.Log;
 
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 
+import org.bouncycastle.asn1.ASN1Integer;
+import org.bouncycastle.asn1.ASN1Sequence;
+import org.bouncycastle.crypto.signers.PlainDSAEncoding;
+import org.bouncycastle.math.ec.custom.sec.SecP521R1Curve;
 import org.bouncycastle.operator.OperatorCreationException;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import java.io.IOException;
+import java.math.BigInteger;
 import java.security.GeneralSecurityException;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
@@ -117,6 +123,16 @@ public class KeyManagerInstrumentedTest {
     }
 
     @Test
+    public void verifyWebCryptoSig() throws Exception {
+        String webCryptoSig = "AbP0jBH4+Sl/rOqP62A7mhy3oQg+fIPHgVFjaY/LnFezym4jcuCx9rh4jzowBlSSg6ACwxNLni6urhfvM6+4jalYAHTpHVdWDYtBxEPK+0S3ViAbDuTa+2vm1B6jC3v0oxvEd+tjmB832G1iBrCGKfwwwks5zk6+MY1NImru6JCPKylL";
+
+        KeyManager keyManager = new KeyManager();
+        keyManager.recoverSignatureKeyPair("DonkeyMan", testRecoverableSigKeyPair, new PasswordWrappingParams("Scrammi"));
+
+        keyManager.verify("DonkeyMan", "Wigmans", webCryptoSig);
+    }
+
+    @Test
     public void recoverAgreementKeyPair() throws Exception {
         KeyManager keyManager = new KeyManager();
         keyManager.recoverAgreementKeyPair("DonkeyMan", testRecoverableAgreeKeyPair, new PasswordWrappingParams("Scrammi"));
@@ -135,7 +151,7 @@ public class KeyManagerInstrumentedTest {
 
         int securityLevel = keyInfo.getSecurityLevel();
 
-        assertEquals(securityLevel, KeyProperties.SECURITY_LEVEL_SOFTWARE);
+        assertEquals(KeyProperties.SECURITY_LEVEL_SOFTWARE, securityLevel);
 //        assertTrue(
 //            securityLevel == KeyProperties.SECURITY_LEVEL_TRUSTED_ENVIRONMENT
 //            || securityLevel == KeyProperties.SECURITY_LEVEL_STRONGBOX
@@ -176,10 +192,15 @@ public class KeyManagerInstrumentedTest {
 
         keyManager.importPublicSignatureKey("OtherPartyKey", Base64.encodeToString(keyPair.getPublic().getEncoded(), Base64.NO_WRAP));
 
-        Signature s = Signature.getInstance("SHA256withECDSA");
-        s.initSign(keyPair.getPrivate());
-        s.update(message.getBytes());
-        String signature = Base64.encodeToString(s.sign(), Base64.NO_PADDING + Base64.NO_WRAP);
+        Signature derSig = Signature.getInstance("SHA256withECDSA");
+        derSig.initSign(keyPair.getPrivate());
+        derSig.update(message.getBytes());
+
+        ASN1Sequence seq = ASN1Sequence.getInstance(derSig.sign());
+        BigInteger r = ((ASN1Integer) seq.getObjectAt(0)).getValue();
+        BigInteger s = ((ASN1Integer) seq.getObjectAt(1)).getValue();
+        BigInteger n = new SecP521R1Curve().getOrder();
+        String signature = Base64.encodeToString(PlainDSAEncoding.INSTANCE.encode(n, r, s), Base64.NO_PADDING + Base64.NO_WRAP);
 
         assertTrue(keyManager.verify("OtherPartyKey", message, signature));
         assertFalse(keyManager.verify("OtherPartyKey", "HeyEverybodyWrong", signature));

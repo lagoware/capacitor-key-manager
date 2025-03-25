@@ -48,6 +48,10 @@ import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.PBEKeySpec;
 import javax.crypto.spec.SecretKeySpec;
 
+import org.bouncycastle.asn1.ASN1EncodableVector;
+import org.bouncycastle.asn1.ASN1Integer;
+import org.bouncycastle.asn1.ASN1Sequence;
+import org.bouncycastle.asn1.DERSequence;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x509.AlgorithmIdentifier;
 import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo;
@@ -55,18 +59,16 @@ import org.bouncycastle.cert.X509CertificateHolder;
 import org.bouncycastle.cert.X509v3CertificateBuilder;
 import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter;
 import org.bouncycastle.crypto.params.AsymmetricKeyParameter;
+import org.bouncycastle.crypto.signers.PlainDSAEncoding;
 import org.bouncycastle.crypto.util.PrivateKeyFactory;
+import org.bouncycastle.math.ec.custom.sec.SecP521R1Curve;
 import org.bouncycastle.operator.ContentSigner;
 import org.bouncycastle.operator.DefaultDigestAlgorithmIdentifierFinder;
 import org.bouncycastle.operator.DefaultSignatureAlgorithmIdentifierFinder;
 import org.bouncycastle.operator.OperatorCreationException;
 import org.bouncycastle.operator.bc.BcECContentSignerBuilder;
 
-import android.util.Log;
-
 import androidx.annotation.RequiresApi;
-
-import java.security.SecureRandom;
 
 public class KeyManager {
     public static final String TAG = "KeyManager";
@@ -436,10 +438,16 @@ public class KeyManager {
     }
 
     public String sign(String keyAlias, String cleartext) throws KeyStoreException, UnrecoverableEntryException, NoSuchAlgorithmException, CertificateException, IOException, InvalidKeyException, SignatureException, NoSuchProviderException {
-        Signature s = Signature.getInstance("SHA256withECDSA");
-        s.initSign(loadPrivateKey(keyAlias));
-        s.update(cleartext.getBytes());
-        byte[] signature = s.sign();
+        Signature derInst = Signature.getInstance("SHA256withECDSA");
+        derInst.initSign(loadPrivateKey(keyAlias));
+        derInst.update(cleartext.getBytes(StandardCharsets.UTF_8));
+        byte[] derSig = derInst.sign();
+
+        ASN1Sequence seq = ASN1Sequence.getInstance(derSig);
+        BigInteger r = ((ASN1Integer) seq.getObjectAt(0)).getValue();
+        BigInteger s = ((ASN1Integer) seq.getObjectAt(1)).getValue();
+        BigInteger n = new SecP521R1Curve().getOrder();
+        byte[] signature = PlainDSAEncoding.INSTANCE.encode(n, r, s);
 
         return Base64.encodeToString(signature, Base64.NO_PADDING + Base64.NO_WRAP);
     }
@@ -449,7 +457,15 @@ public class KeyManager {
 
         KeyStore.Entry entry = ks.getEntry(keyAlias, null);
 
-        byte[] signatureData = Base64.decode(signature, Base64.NO_PADDING + Base64.NO_WRAP);
+        byte[] encodedSig = Base64.decode(signature, Base64.NO_PADDING + Base64.NO_WRAP);
+        BigInteger n = new SecP521R1Curve().getOrder();
+
+        BigInteger[] decodedSig = PlainDSAEncoding.INSTANCE.decode(n, encodedSig);
+
+        ASN1EncodableVector v = new ASN1EncodableVector();
+        v.add(new ASN1Integer(decodedSig[0]));
+        v.add(new ASN1Integer(decodedSig[1]));
+        byte[] signatureData = new DERSequence(v).getEncoded();
 
         Signature s = Signature.getInstance("SHA256withECDSA");
 
@@ -459,7 +475,7 @@ public class KeyManager {
             s.initVerify(((KeyStore.PrivateKeyEntry) entry).getCertificate().getPublicKey());
         }
 
-        s.update(cleartext.getBytes());
+        s.update(cleartext.getBytes(StandardCharsets.UTF_8));
 
         return s.verify(signatureData);
     }

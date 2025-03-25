@@ -14,9 +14,9 @@ import {
 import webCrypto from 'tiny-webcrypto';
 import { test as baseTest, expect } from 'vitest';
 
-import type { KeyManagerWebPlugin } from '../src/definitions';
+import type { KeyManagerPlugin } from '../src/definitions';
 import { IdbKeyStore } from '../src/idb-key-store';
-import { base64Encode, KeyManager } from '../src/key-manager';
+import { base64Decode, base64Encode, KeyManager } from '../src/key-manager';
 
 export function setupFakeIdb(): void {
     const fakeIndexedDB = new IDBFactory();
@@ -36,7 +36,7 @@ export function setupFakeIdb(): void {
 }
 
 const test = baseTest.extend<{
-    keyManager: KeyManagerWebPlugin
+    keyManager: KeyManagerPlugin
 }>({
     // eslint-disable-next-line no-empty-pattern
     keyManager: async ({}, use) => {
@@ -462,10 +462,53 @@ test('KeyManager#recoverSignatureKeyPair', async ({ keyManager }) => {
         cleartext: 'Wigmans'
     });
 
+    console.log('signature', signature);
+
+    // expect(signature).toBe("Ae4RuFpUWr9DiZAeEK/v6bkS+v8ZS+TigW4cp5ltED2qYY9h6wplHIWdzwEwHiz18PQsbhPLA+zc4XVyqJVCzXTLALtFUCrp0MmrG+ieB17zNXkySjUlILNSTSWFStDn6thej/PMV9RY1Yr+F5ckqkvteCfOlzWzgudmjk9by82fCqgs");
+
     const { isValid } = await keyManager.verify({
         keyAlias: importAlias,
         cleartext: 'Wigmans',
         signature
+    });
+
+    const boo = "AbP0jBH4+Sl/rOqP62A7mhy3oQg+fIPHgVFjaY/LnFezym4jcuCx9rh4jzowBlSSg6ACwxNLni6urhfvM6+4jalYAHTpHVdWDYtBxEPK+0S3ViAbDuTa+2vm1B6jC3v0oxvEd+tjmB832G1iBrCGKfwwwks5zk6+MY1NImru6JCPKylL";
+    const par = "ATSEc0tZrtEuo4wEvrP64YfOOyc6jeFnBXF6vUOorHWgysqXhxg+OR1GRHFh8qnlTbzF186GxPUwLxCBZEkYvVvZANUGMe6cRLB/5358Kiv9Z5RQrScQ9AdOFu0qAw0eydejGo09Fc5aS6qhbgYlwVGOpK2Dsm67qTJ/epgvgxzlWnYw";
+    
+    const basr = "MEUCIQDkAtiomagyHFi7dNfxMrzx/U0Gk/ZhmwCqaL3TimvlswIgPgeDqgZNqfR5/FZZASYsczUAhGSXjuycLhWnvk20qKc=";
+
+    console.log(base64Decode(par).byteLength);
+
+    const { isValid: isValid2 } = await keyManager.verify({
+        keyAlias: importAlias,
+        cleartext: 'Wigmans',
+        signature: boo
+    });
+    expect(isValid).true;
+    expect(isValid2).true;
+});
+
+test('Signature generated on Android is verifiable', async ({ keyManager }) => {
+    const importAlias = 'Badonkey';
+    const password = 'Scrammi';
+
+    await expect(() => keyManager.recoverSignatureKeyPair({
+        importAlias,
+        unwrapWith: { password: 'Bramson' },
+        recoverableKeyPair: recoverableSigKeyPairJson
+    })).rejects.toThrowError();
+
+    await keyManager.recoverSignatureKeyPair({
+        importAlias,
+        unwrapWith: { password },
+        recoverableKeyPair: recoverableSigKeyPairJson
+    });
+    const androidSig = "ATSEc0tZrtEuo4wEvrP64YfOOyc6jeFnBXF6vUOorHWgysqXhxg+OR1GRHFh8qnlTbzF186GxPUwLxCBZEkYvVvZANUGMe6cRLB/5358Kiv9Z5RQrScQ9AdOFu0qAw0eydejGo09Fc5aS6qhbgYlwVGOpK2Dsm67qTJ/epgvgxzlWnYw";
+    
+    const { isValid } = await keyManager.verify({
+        keyAlias: importAlias,
+        cleartext: 'Wigmans',
+        signature: androidSig
     });
 
     expect(isValid).true;
